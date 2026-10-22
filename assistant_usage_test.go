@@ -69,7 +69,7 @@ func (s *assistantUsageServer) AskQuestion(ctx context.Context, in *assistantv1.
 	var err error
 	committed := false
 	defer func() {
-		if token.id != "" && !committed {
+		if !committed {
 			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 			defer cancel()
 			if releaseErr := s.db.Run(cleanup, func(txCtx context.Context) error { return s.e.Release(txCtx, token) }); releaseErr != nil {
@@ -158,7 +158,6 @@ func dialUsage(t *testing.T, srv *grpc.Server) *grpc.ClientConn {
 }
 func TestUsageAskQuestionReservationConsentReleaseAndScopes(t *testing.T) {
 	e, db, _ := setup(t)
-	e.methods[askMethod] = Policy{TTL: 24 * time.Hour}
 	peer := &consentPeer{db: db, waiting: make(chan struct{})}
 	remote := grpc.NewServer()
 	userv1.RegisterUserInternalServiceServer(remote, peer)
@@ -258,6 +257,16 @@ func TestUsageAskQuestionReservationConsentReleaseAndScopes(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
+	// Public API only: zero-token Release must preserve both duplicate errors.
+	_, err = client.AskQuestion(outgoing(cancelKey, "a"), in)
+	done()
+	assertReason(t, err, "REQUEST_IN_PROGRESS")
+	if status.Code(err) != codes.Aborted {
+		t.Fatal(err)
+	}
+	_, err = client.AskQuestion(outgoing(cancelKey, "a"), &assistantv1.AskQuestionRequest{Text: "changed"})
+	done()
+	assertReason(t, err, "IDEMPOTENCY_CONFLICT")
 	stop()
 	if err = <-callDone; status.Code(err) != codes.Canceled {
 		t.Fatal(err)

@@ -77,7 +77,7 @@ func setup(t *testing.T) (*Engine, *serviceDB, *testClock) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e, err := New(db, Options{Methods: map[string]Policy{testMethod: {}, "/finassist.user.v1.AuthService/StartPhoneVerification": {Encrypt: true}, "/finassist.user.v1.AuthService/RefreshTokens": {TTL: 60 * time.Second, Encrypt: true}}, Clock: clock.Now, Cipher: aead, LockTimeout: 40 * time.Millisecond, Registerer: prometheus.NewRegistry()})
+	e, err := New(db, Options{Methods: map[string]Policy{askMethod: {TTL: 24 * time.Hour}, testMethod: {}, "/finassist.user.v1.AuthService/StartPhoneVerification": {Encrypt: true}, "/finassist.user.v1.AuthService/RefreshTokens": {TTL: 60 * time.Second, Encrypt: true}}, Clock: clock.Now, Cipher: aead, LockTimeout: 40 * time.Millisecond, Registerer: prometheus.NewRegistry()})
 	if err != nil {
 		t.Fatal(err)
 	}

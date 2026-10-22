@@ -82,7 +82,8 @@ type Result struct {
 }
 
 // Reservation is an opaque fencing token from Reserve. It is safe to copy.
-// A zero value is invalid. Never send it to a client or log it.
+// A zero value is invalid for DoReserved and a no-op for Release.
+// Never send it to a client or log it.
 type Reservation struct {
 	request Request
 	id      string

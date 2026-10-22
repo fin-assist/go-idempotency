@@ -214,7 +214,7 @@ func TestPreconditionsAndStorageErrors(t *testing.T) {
 	if _, err := e.DoReserved(ctx, Reservation{}, effect); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatal(err)
 	}
-	if err := e.Release(ctx, Reservation{}); !errors.Is(err, ErrInvalidRequest) {
+	if err := e.Release(ctx, Reservation{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.Cleanup(ctx, 0); !errors.Is(err, ErrInvalidRequest) {

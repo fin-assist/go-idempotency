@@ -206,7 +206,12 @@ func (e *Engine) DoReserved(ctx context.Context, token Reservation, effect func(
 // Release removes only the caller's unfinished reservation. Call it in a NEW,
 // bounded service transaction after rollback or a preflight failure. A delayed
 // release never deletes a new owner's reservation or a completed response.
+// A zero Reservation is a no-op (no transaction required), so callers can defer
+// cleanup even when Reserve fails or returns a replay.
 func (e *Engine) Release(ctx context.Context, token Reservation) error {
+	if token == (Reservation{}) {
+		return nil
+	}
 	r, _, err := e.validate(token.request)
 	if err != nil || token.id == "" {
 		return ErrInvalidRequest
