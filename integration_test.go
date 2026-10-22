@@ -299,6 +299,55 @@ func TestPostgresConcurrentTimeoutAndWaitForCommit(t *testing.T) {
 		})
 	}
 }
+func TestPostgresCompletionDeadlineWhileWaitingForKey(t *testing.T) {
+	for _, reserved := range []bool{false, true} {
+		t.Run(map[bool]string{false: "Do", true: "DoReserved"}[reserved], func(t *testing.T) {
+			e, db, _ := setup(t)
+			e.effectTimeout = 150 * time.Millisecond
+			e.lockTimeout = 3 * time.Second
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			r := request()
+			token := reserve(t, e, db, r)
+			owner, err := db.pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = owner.Rollback(context.Background()) }()
+			if _, err = readRecord(ctx, owner, token.request); err != nil {
+				t.Fatal(err)
+			}
+			work, finish := e.WithCompletion(ctx)
+			defer finish()
+			called := false
+			fn := func(context.Context) (Response, error) {
+				called = true
+				return Response{}, nil
+			}
+			started := time.Now()
+			err = db.Run(work, func(txCtx context.Context) error {
+				var callErr error
+				if reserved {
+					_, callErr = e.DoReserved(txCtx, token, fn)
+				} else {
+					_, callErr = e.Do(txCtx, r, fn)
+				}
+				return callErr
+			})
+			if !errors.Is(err, context.DeadlineExceeded) || called {
+				t.Fatalf("err=%v callback=%v", err, called)
+			}
+			if elapsed := time.Since(started); elapsed >= 1500*time.Millisecond {
+				t.Fatalf("completion deadline did not bound the lock wait: %v", elapsed)
+			}
+			if ctx.Err() != nil {
+				t.Fatalf("original request ended before completion: %v", ctx.Err())
+			}
+			assertCount(t, db, 0)
+		})
+	}
+}
+
 func TestPostgresCancellationCompletionAndTimeout(t *testing.T) {
 	e, db, _ := setup(t)
 	ctx, cancel := context.WithCancel(context.Background())

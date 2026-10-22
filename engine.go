@@ -109,10 +109,12 @@ func (e *Engine) Do(ctx context.Context, r Request, effect func(context.Context)
 	if err != nil {
 		return Result{}, err
 	}
-	if err = original.Err(); err != nil {
+	preflight, cancel := preflightContext(ctx, original)
+	defer cancel()
+	if err = preflight.Err(); err != nil {
 		return Result{}, err
 	}
-	row, fresh, err := e.claim(original, tx, r, p.TTL, "")
+	row, fresh, err := e.claim(preflight, tx, r, p.TTL, "")
 	if err != nil {
 		e.observeError(r, err)
 		return Result{}, err
@@ -121,6 +123,9 @@ func (e *Engine) Do(ctx context.Context, r Request, effect func(context.Context)
 		return e.existing(r, row)
 	}
 	if err = original.Err(); err != nil {
+		return Result{}, err
+	}
+	if err = preflight.Err(); err != nil {
 		return Result{}, err
 	}
 	return e.perform(ctx, tx, r, p, "", effect)
@@ -172,13 +177,15 @@ func (e *Engine) DoReserved(ctx context.Context, token Reservation, effect func(
 	if err != nil {
 		return Result{}, err
 	}
-	if err = original.Err(); err != nil {
+	preflight, cancel := preflightContext(ctx, original)
+	defer cancel()
+	if err = preflight.Err(); err != nil {
 		return Result{}, err
 	}
 	var row record
-	err = e.locked(original, tx, func() error {
+	err = e.locked(preflight, tx, func() error {
 		var readErr error
-		row, readErr = readRecord(original, tx, r)
+		row, readErr = readRecord(preflight, tx, r)
 		return readErr
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -198,6 +205,9 @@ func (e *Engine) DoReserved(ctx context.Context, token Reservation, effect func(
 		return Result{}, e.progress(r, time.Second)
 	}
 	if err = original.Err(); err != nil {
+		return Result{}, err
+	}
+	if err = preflight.Err(); err != nil {
 		return Result{}, err
 	}
 	return e.perform(ctx, tx, r, p, token.id, effect)

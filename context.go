@@ -26,6 +26,27 @@ func (e *Engine) WithCompletion(ctx context.Context) (context.Context, context.C
 	return context.WithValue(work, completionKey{}, ctx), cancel
 }
 
+// preflightContext observes both cancellation sources until the effect starts.
+// Cancelling it never cancels the completion context used by the effect/commit.
+func preflightContext(completion, original context.Context) (context.Context, context.CancelFunc) {
+	var preflight context.Context
+	var cancel context.CancelFunc
+	if deadline, ok := original.Deadline(); ok {
+		preflight, cancel = context.WithDeadline(completion, deadline)
+	} else {
+		preflight, cancel = context.WithCancel(completion)
+	}
+	stop := context.AfterFunc(original, cancel)
+	// AfterFunc is asynchronous, including when original is already cancelled.
+	if original.Err() != nil {
+		cancel()
+	}
+	return preflight, func() {
+		stop()
+		cancel()
+	}
+}
+
 // UnaryInterceptor extracts metadata for configured methods only. Place it after
 // authentication/tombstones. scope must return only a VERIFIED user UUID (or
 // empty for a no-user method); it must fail closed when identity is missing.

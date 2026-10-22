@@ -116,7 +116,7 @@ The same priorities and rules as the services (`AGENTS.md` of `fin-assist/go-ser
 
 - Core Request.Endpoint is a stable operation ID (1-256 bytes), independent of transport. The gRPC adapter supplies a full method; HTTP callers use a static operation name or method/route template and construct Request explicitly. Response.Body is opaque service-serialized data; http_usage_test.go covers JSON over a real HTTP handler.
 
-- The service starts every primary READ COMMITTED transaction. `WithCompletion` wraps the entire effect transaction and commit; Do uses original request cancellation until the callback starts.
+- The service starts every primary READ COMMITTED transaction. `WithCompletion` wraps the entire effect transaction and commit; Do/DoReserved observe both original request cancellation and the completion deadline until the callback starts.
 - Return the Do error from the transaction callback; `Result.Err` is a validated contract error returned to gRPC only after commit. `ErrNotStored` requires rollback and preserves the domain error in Result.Err.
 - AskQuestion: commit Reserve, check consent outside the transaction, then DoReserved; rollback and Release in a new bounded transaction on failure. Reservation TTL is 15 seconds, checked again at completion.
 - RefreshTokens requires encrypted 60-second storage; Register and StartPhoneVerification also require encryption of their token-bearing responses. Only the busy-phone-number outcome of StartPhoneVerification opts into saved RATE_LIMITED with DuplicateRetryAt.
