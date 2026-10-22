@@ -19,7 +19,8 @@ var (
 	ErrInvalidRequest = errors.New("idempotency: invalid request")
 	// ErrStorage hides database and encrypted payload details. Roll back on this error.
 	ErrStorage = errors.New("idempotency: storage failure")
-	// ErrNotStored means the outcome must roll back with the effect. Inspect Result.Err after rollback.
+	// ErrNotStored means a validated contract error requires rollback with the effect.
+	// Inspect Result.Err after rollback. Unknown effect errors instead return ErrStorage with an empty Result.
 	ErrNotStored = errors.New("idempotency: outcome requires rollback")
 )
 
@@ -71,8 +72,8 @@ type Response struct {
 	DuplicateRetryAt time.Time
 }
 
-// Result is usable only after the service transaction commits. Err is the
-// original or replayed domain error; return it to gRPC AFTER committing. Returning
+// Result is usable only after the service transaction commits. Err is a validated
+// contract error, original or replayed; return it to gRPC AFTER committing. Returning
 // it from the transaction callback would discard a cacheable error.
 type Result struct {
 	Response Response

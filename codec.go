@@ -30,7 +30,7 @@ func (e *Engine) encode(r Request, p Policy, result Result) ([]byte, time.Time, 
 	if result.Err != nil {
 		rest, ok := finerr.ToREST(result.Err)
 		if !ok {
-			return nil, time.Time{}, ErrNotStored
+			return nil, time.Time{}, ErrStorage
 		}
 		code := rest.Spec.HTTPStatus
 		if result.Response.DuplicateRetryAt.IsZero() {

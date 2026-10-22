@@ -488,3 +488,77 @@ func TestPostgresCleanupSkipsLockedAndExpiredSavedReservationNeedsNewReserve(t *
 	}
 	assertCount(t, db, 1)
 }
+
+func TestPostgresWaitingDuplicateAcquiresAfterOwnerRollback(t *testing.T) {
+	e, db, _ := setup(t)
+	e.lockTimeout = 2 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	started := make(chan struct{})
+	rollback := make(chan struct{})
+	first := make(chan error, 1)
+	discard := errors.New("rollback owner")
+	go func() {
+		_, err := runDo(e, db, ctx, request(), func(ctx context.Context) (Response, error) {
+			response, err := effect(db)(ctx)
+			if err != nil {
+				return response, err
+			}
+			close(started)
+			select {
+			case <-rollback:
+			case <-ctx.Done():
+				return Response{}, ctx.Err()
+			}
+			return response, discard
+		})
+		first <- err
+	}()
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	type reply struct {
+		result Result
+		err    error
+	}
+	second := make(chan reply, 1)
+	go func() { result, err := runDo(e, db, ctx, request(), effect(db)); second <- reply{result, err} }()
+	for {
+		var waiting bool
+		err := db.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock')`).Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+		if ctx.Err() != nil {
+			t.Fatal(ctx.Err())
+		}
+	}
+	close(rollback)
+	if err := <-first; !errors.Is(err, ErrStorage) {
+		t.Fatal(err)
+	}
+	got := <-second
+	if got.err != nil || got.result.Replayed {
+		t.Fatal(got)
+	}
+	assertCount(t, db, 1)
+	replay, err := runDo(e, db, ctx, request(), effect(db))
+	if err != nil || !replay.Replayed {
+		t.Fatal(replay, err)
+	}
+	assertCount(t, db, 1)
+}
+func TestUnknownEffectErrorNeverAppearsInResult(t *testing.T) {
+	e := unitEngine(t)
+	r := request()
+	p := e.methods[r.Endpoint]
+	result, err := e.perform(context.Background(), unavailableTx{}, r, p, "", func(context.Context) (Response, error) { return Response{}, errors.New("private SQL and credentials") })
+	if !errors.Is(err, ErrStorage) || result.Err != nil {
+		t.Fatal(result, err)
+	}
+}

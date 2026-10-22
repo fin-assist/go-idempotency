@@ -44,6 +44,10 @@ func (s *usageServer) StartPhoneVerification(ctx context.Context, in *userv1.Sta
 		if in.GetPhone() == "wrong" {
 			return Response{}, finerr.WrongFormat()
 		}
+		if in.GetPhone() == "busy" {
+			retry := s.clock.Now().Add(time.Minute)
+			return Response{DuplicateRetryAt: retry}, finerr.RateLimited(retry)
+		}
 		out := &userv1.StartPhoneVerificationResponse{VerificationToken: "opaque", CallbackNumber: "+78001234567", ExpiresAt: timestamppb.New(s.clock.Now().Add(5 * time.Minute))}
 		body, err := proto.Marshal(out)
 		return Response{Body: body, Headers: map[string][]string{"x-result": {"saved"}}}, err
@@ -122,4 +126,39 @@ func TestUsageGeneratedClientAndContractErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertCount(t, db, 2)
+}
+
+func TestUsageBusyPhoneRateLimitedRebuildsRetryInfo(t *testing.T) {
+	e, db, clock := setup(t)
+	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(e.UnaryInterceptor(func(context.Context) (string, error) { return "", nil })))
+	userv1.RegisterAuthServiceServer(srv, &usageServer{e: e, db: db, clock: clock})
+	client := userv1.NewAuthServiceClient(dialUsage(t, srv))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ctx = metadata.AppendToOutgoingContext(ctx, "idempotency-key", testKey)
+	retry := clock.Now().Add(time.Minute)
+	var firstDelay time.Duration
+	for i := range 2 {
+		before := time.Now()
+		_, err := client.StartPhoneVerification(ctx, &userv1.StartPhoneVerificationRequest{Phone: "busy"})
+		rest, ok := finerr.ToREST(err)
+		if !ok || rest.Code != "RATE_LIMITED" || status.Code(err) != codes.ResourceExhausted || rest.Metadata["retry_at"] != retry.Format(time.RFC3339) || rest.RetryAfter <= 0 || rest.RetryAfter > retry.Sub(before)+time.Second {
+			t.Fatal(rest, err)
+		}
+		if i == 0 {
+			firstDelay = rest.RetryAfter
+			// finerr rounds its wall-clock delay up to seconds; cross one
+			// second intentionally to verify aging (not goroutine synchronization).
+			timer := time.NewTimer(1100 * time.Millisecond)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				t.Fatal(ctx.Err())
+			}
+		} else if rest.RetryAfter >= firstDelay {
+			t.Fatal("RetryInfo was not recomputed", rest.RetryAfter, firstDelay)
+		}
+	}
+	assertCount(t, db, 1)
 }

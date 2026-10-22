@@ -73,7 +73,7 @@ func NewCipher(key []byte) (cipher.AEAD, error) {
 
 func (e *Engine) validate(r Request) (Request, Policy, error) {
 	p, ok := e.methods[r.Endpoint]
-	if !ok || !validUUID(r.Key) || (r.Scope != "" && !validUUID(r.Scope)) {
+	if !ok || r.Hash == [32]byte{} || !validUUID(r.Key) || (r.Scope != "" && !validUUID(r.Scope)) {
 		return Request{}, Policy{}, ErrInvalidRequest
 	}
 	if r.Scope == "" {
@@ -223,6 +223,11 @@ func (e *Engine) Release(ctx context.Context, token Reservation) error {
 
 func (e *Engine) perform(ctx context.Context, tx pgx.Tx, r Request, p Policy, reservation string, effect func(context.Context) (Response, error)) (Result, error) {
 	response, domainErr := effect(ctx)
+	if domainErr != nil {
+		if _, ok := finerr.ToREST(domainErr); !ok {
+			return Result{}, ErrStorage
+		}
+	}
 	result := Result{Response: response, Err: domainErr}
 	encoded, expires, err := e.encode(r, p, result)
 	if err != nil {

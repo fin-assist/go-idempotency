@@ -179,7 +179,7 @@ func TestCodecPoliciesAndEncryption(t *testing.T) {
 			}
 		}
 	}
-	for _, domain := range []error{finerr.InvalidToken(), finerr.ConsentRequired(), finerr.NotFound(), finerr.IdempotencyConflict(), finerr.RateLimited(time.Now().Add(time.Hour)), errors.New("secret sql"), finerr.InternalError()} {
+	for _, domain := range []error{finerr.InvalidToken(), finerr.ConsentRequired(), finerr.NotFound(), finerr.IdempotencyConflict(), finerr.RateLimited(time.Now().Add(time.Hour)), finerr.InternalError()} {
 		if _, _, err := e.encode(r, Policy{TTL: time.Hour}, Result{Err: domain}); !errors.Is(err, ErrNotStored) {
 			t.Fatal(domain, err)
 		}
@@ -198,7 +198,7 @@ func TestCodecPoliciesAndEncryption(t *testing.T) {
 
 func TestPreconditionsAndStorageErrors(t *testing.T) {
 	e := unitEngine(t)
-	r := Request{Endpoint: testMethod, Key: testKey}
+	r := request()
 	ctx, cancel := e.WithCompletion(context.Background())
 	defer cancel()
 	effect := func(context.Context) (Response, error) { t.Fatal("effect called"); return Response{}, nil }
@@ -253,7 +253,7 @@ func TestCodecInvalidOutcomesFailClosed(t *testing.T) {
 		}
 	}
 	invalidStatus := finerr.ValidationError(&errdetails.BadRequest_FieldViolation{Field: string([]byte{255}), Reason: "INVALID_FORMAT"})
-	if _, _, err := e.encode(r, p, Result{Err: invalidStatus}); !errors.Is(err, ErrNotStored) {
+	if _, _, err := e.encode(r, p, Result{Err: invalidStatus}); !errors.Is(err, ErrStorage) {
 		t.Fatal(err)
 	}
 	e.methods[testMethod] = p
@@ -335,6 +335,21 @@ func TestDatabaseUnavailabilityNeverRunsAnEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := e.Release(ctx, token); !errors.Is(err, ErrNoTransaction) {
+		t.Fatal(err)
+	}
+}
+
+func TestZeroHashRejected(t *testing.T) {
+	e := unitEngine(t)
+	ctx, cancel := e.WithCompletion(context.Background())
+	defer cancel()
+	r := request()
+	r.Hash = [32]byte{}
+	fn := func(context.Context) (Response, error) { t.Fatal("zero hash ran effect"); return Response{}, nil }
+	if _, err := e.Do(ctx, r, fn); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatal(err)
+	}
+	if _, _, err := e.Reserve(ctx, r); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatal(err)
 	}
 }
