@@ -390,3 +390,16 @@ func TestDuplicateRetryAtPreservesNonUTCMoment(t *testing.T) {
 		t.Fatal(result, err)
 	}
 }
+
+func TestMethodLengthValidatedBeforeDatabase(t *testing.T) {
+	for _, size := range []int{256, 257} {
+		method := "/" + strings.Repeat("s", size-3) + "/m"
+		_, err := New(noTx{}, Options{Methods: map[string]Policy{method: {}}, Clock: time.Now, Registerer: prometheus.NewRegistry()})
+		if size == 256 && err != nil {
+			t.Fatal(err)
+		}
+		if size == 257 && !errors.Is(err, ErrInvalidRequest) {
+			t.Fatal("oversized method accepted", err)
+		}
+	}
+}

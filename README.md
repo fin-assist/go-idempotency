@@ -15,7 +15,7 @@
 {Name: "service", Table: "schema_migrations", FS: migrations.FS},
 ```
 
-Примените `migrate up`. Источник `idempotency`, таблица версий `idempotency_schema_migrations`; `001_keys` создаёт `idempotency_keys` с PK `(scope, endpoint, key)` и индексом срока. Down удаляет таблицу и сохранённые результаты: это операция отката схемы, не способ очистки.
+Примените `migrate up`. Источник `idempotency`, таблица версий `idempotency_schema_migrations`; `001_keys` создаёт `idempotency_keys` с PK `(scope, endpoint, key)` и индексом срока. Down удаляет таблицу и сохранённые результаты: это операция отката схемы, не способ очистки. Валидация значений выполняется в Go; в схеме остаются типы, NOT NULL и первичный ключ. Назначение таблицы и каждого поля записано в русских COMMENT ON.
 
 Все операции — **на primary (`-rw`), READ COMMITTED**. Передавайте `postgres.DB` через интерфейс `Tx(context.Context) (pgx.Tx, bool)`. Отсутствующая транзакция — `ErrNoTransaction`; библиотека не начинает, не коммитит и не откатывает её. На `-ro` библиотеку вызывать нельзя. Не делайте внешних вызовов внутри транзакции эффекта.
 

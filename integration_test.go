@@ -644,3 +644,17 @@ func TestPostgresMetricsCountDecisionsOnceAndHaveBoundedLabels(t *testing.T) {
 		t.Fatal("missing outcomes", want)
 	}
 }
+
+func TestPostgresInvalidStoredHashRejectedByCode(t *testing.T) {
+	e, db, _ := setup(t)
+	if _, err := runDo(e, db, context.Background(), request(), effect(db)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.pool.Exec(context.Background(), "UPDATE idempotency_keys SET request_hash=$1", []byte("invalid hash")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runDo(e, db, context.Background(), request(), effect(db)); !errors.Is(err, ErrStorage) {
+		t.Fatal("invalid stored hash accepted", err)
+	}
+	assertCount(t, db, 1)
+}
