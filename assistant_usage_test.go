@@ -140,7 +140,10 @@ func (s *assistantUsageServer) AskQuestion(ctx context.Context, in *assistantv1.
 }
 func contractError(err error) error {
 	if _, ok := finerr.ToREST(err); ok {
-		return err
+		var source interface{ GRPCStatus() *status.Status }
+		if errors.As(err, &source) {
+			return source.GRPCStatus().Err()
+		}
 	}
 	return finerr.InternalError()
 }

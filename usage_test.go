@@ -188,3 +188,20 @@ func TestUsageWrappedContractErrorSanitized(t *testing.T) {
 	}
 	assertCount(t, db, 1)
 }
+
+func TestServiceTransactionErrorMappingDropsRollbackText(t *testing.T) {
+	original := finerr.RequestInProgress(time.Second)
+	for _, err := range []error{
+		fmt.Errorf("private transaction details: %w", original),
+		errors.Join(original, errors.New("private rollback SQL users_phone_key")),
+	} {
+		mapped := contractError(err)
+		assertReason(t, mapped, "REQUEST_IN_PROGRESS")
+		if status.Code(mapped) != codes.Aborted || status.Convert(mapped).Message() != "REQUEST_IN_PROGRESS" {
+			t.Fatal(mapped)
+		}
+	}
+	if status.Code(contractError(errors.New("private SQL"))) != codes.Internal {
+		t.Fatal("unknown error exposed")
+	}
+}
