@@ -49,9 +49,9 @@ if err != nil { return err }
 
 ```go
 request, ok := idempotency.FromContext(ctx)
-if !ok { return nil, idempotency.ErrInvalidRequest }
+if !ok { return nil, finerr.InternalError() }
 request.Hash, err = idempotency.HashProto(in)
-if err != nil { return nil, err }
+if err != nil { return nil, finerr.InternalError() }
 
 completion, cancel := idem.WithCompletion(ctx)
 defer cancel() // AFTER db.Run has committed or rolled back
@@ -73,9 +73,9 @@ if err != nil {
     return nil, finerr.InternalError()
 }
 if result.Err != nil { return nil, result.Err }
-if err := grpc.SetHeader(ctx, metadata.MD(result.Response.Headers)); err != nil { return nil, err }
+if err := grpc.SetHeader(ctx, metadata.MD(result.Response.Headers)); err != nil { return nil, finerr.InternalError() }
 out := new(ResponseProto)
-if err := proto.Unmarshal(result.Response.Body, out); err != nil { return nil, err }
+if err := proto.Unmarshal(result.Response.Body, out); err != nil { return nil, finerr.InternalError() }
 return out, nil
 ```
 
@@ -104,7 +104,7 @@ return out, nil
 2. С полученным token, **вне транзакции**, проверьте согласие через `GetAssistantConsentStatus` на primary `user`. Используйте обычный контекст запроса с дедлайном unary 5 с.
 3. Создайте `WithCompletion(ctx)` и в новой транзакции вызовите `DoReserved(txCtx, token, callback)`. Callback атомарно списывает лимит и создаёт вопрос/ответ; результат обрабатывается как у `Do`. Fencing проверяется перед callback и при записи ответа: совпадение `reservation_id`, срок строго больше текущего времени. Потерянный резерв не может закоммитить эффект.
 4. После commit запускайте генерацию; сетевой вызов LLM не входит в транзакцию.
-5. При любой ошибке до commit сначала откатите транзакцию, затем в **новой ограниченной по времени транзакции** вызовите `Release(ctx, token)`. Для очистки после отмены используйте `context.WithTimeout(context.WithoutCancel(ctx), ...)`. Это касается и отказа согласия, и лимита, и ошибки БД. Запоздалый Release удаляет только собственный незавершённый резерв. При падении процесса резерв истекает сам. Нулевой token (ошибка `Reserve` или replay) для `Release` — безопасный no-op; отложенную очистку можно ставить до вызова `Reserve` без доступа к внутренним полям token.
+5. При любой ошибке до commit сначала откатите транзакцию, затем в **новой ограниченной по времени транзакции** вызовите `Release(ctx, token)`. Для очистки после отмены используйте `context.WithTimeout(context.WithoutCancel(ctx), ...)`. Это касается и отказа согласия, и лимита, и ошибки БД. Запоздалый Release удаляет только собственный незавершённый резерв. При падении процесса резерв истекает сам. Чтобы не открывать пустую cleanup-транзакцию на replay/дубле, перед `db.Run` можно проверить `token == (idempotency.Reservation{})` и пропустить очистку. Нулевой token (ошибка `Reserve` или replay) для `Release` — безопасный no-op; отложенную очистку можно ставить до вызова `Reserve` без доступа к внутренним полям token.
 
 TTL резерва — 15 с по контракту, не TTL ответа. Дубль с тем же телом получает остаток TTL в `RetryInfo`; с другим — конфликт. После завершения — сохранённый ответ. Истёкший резерв перезанимается новой попыткой. Если при `DoReserved` другая попытка уже завершилась, возвращается её ответ; при незавершённом/просроченном/снятом резерве — `REQUEST_IN_PROGRESS` и откат. При истечении готового ответа нужна новая попытка через `Reserve`.
 

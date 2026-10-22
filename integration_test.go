@@ -49,6 +49,11 @@ func (c *testClock) Now() time.Time      { c.mu.Lock(); defer c.mu.Unlock(); ret
 func (c *testClock) Add(d time.Duration) { c.mu.Lock(); defer c.mu.Unlock(); c.now = c.now.Add(d) }
 func setup(t *testing.T) (*Engine, *serviceDB, *testClock) {
 	t.Helper()
+	e, db, clock, _ := setupWithRegistry(t)
+	return e, db, clock
+}
+func setupWithRegistry(t *testing.T) (*Engine, *serviceDB, *testClock, *prometheus.Registry) {
+	t.Helper()
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, pgtest.DSN(t))
 	if err != nil {
@@ -77,11 +82,12 @@ func setup(t *testing.T) (*Engine, *serviceDB, *testClock) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e, err := New(db, Options{Methods: map[string]Policy{askMethod: {TTL: 24 * time.Hour}, testMethod: {}, "/finassist.user.v1.AuthService/StartPhoneVerification": {Encrypt: true}, "/finassist.user.v1.AuthService/RefreshTokens": {TTL: 60 * time.Second, Encrypt: true}}, Clock: clock.Now, Cipher: aead, LockTimeout: 40 * time.Millisecond, Registerer: prometheus.NewRegistry()})
+	registry := prometheus.NewRegistry()
+	e, err := New(db, Options{Methods: map[string]Policy{askMethod: {TTL: 24 * time.Hour}, testMethod: {}, "/finassist.user.v1.AuthService/StartPhoneVerification": {Encrypt: true}, "/finassist.user.v1.AuthService/RefreshTokens": {TTL: 60 * time.Second, Encrypt: true}}, Clock: clock.Now, Cipher: aead, LockTimeout: 40 * time.Millisecond, Registerer: registry})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return e, db, clock
+	return e, db, clock, registry
 }
 func request() Request {
 	return Request{Endpoint: testMethod, Key: testKey, Hash: sha256.Sum256([]byte("request"))}
@@ -560,5 +566,81 @@ func TestUnknownEffectErrorNeverAppearsInResult(t *testing.T) {
 	result, err := e.perform(context.Background(), unavailableTx{}, r, p, "", func(context.Context) (Response, error) { return Response{}, errors.New("private SQL and credentials") })
 	if !errors.Is(err, ErrStorage) || result.Err != nil {
 		t.Fatal(result, err)
+	}
+}
+
+func TestPostgresMetricsCountDecisionsOnceAndHaveBoundedLabels(t *testing.T) {
+	e, db, _, registry := setupWithRegistry(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	r := request()
+	if _, err := runDo(e, db, ctx, r, effect(db)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runDo(e, db, ctx, r, effect(db)); err != nil {
+		t.Fatal(err)
+	}
+	different := r
+	different.Hash[0] ^= 1
+	_, err := runDo(e, db, ctx, different, effect(db))
+	assertReason(t, err, "IDEMPOTENCY_CONFLICT")
+	reserved := r
+	reserved.Key = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+	_ = reserve(t, e, db, reserved)
+	err = db.Run(ctx, func(ctx context.Context) error { _, _, err := e.Reserve(ctx, reserved); return err })
+	assertReason(t, err, "REQUEST_IN_PROGRESS")
+	// Also verify the lock-timeout path doesn't count the same refusal twice.
+	locked := r
+	locked.Key = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+	started := make(chan struct{})
+	finish := make(chan struct{})
+	finished := make(chan error, 1)
+	go func() {
+		_, err := runDo(e, db, ctx, locked, func(ctx context.Context) (Response, error) {
+			close(started)
+			select {
+			case <-finish:
+			case <-ctx.Done():
+				return Response{}, ctx.Err()
+			}
+			return effect(db)(ctx)
+		})
+		finished <- err
+	}()
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	_, err = runDo(e, db, ctx, locked, effect(db))
+	assertReason(t, err, "REQUEST_IN_PROGRESS")
+	close(finish)
+	if err = <-finished; err != nil {
+		t.Fatal(err)
+	}
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(families) != 1 || families[0].GetName() != "finassist_idempotency_requests_total" {
+		t.Fatal(families)
+	}
+	want := map[string]float64{"new": 2, "replay": 1, "conflict": 1, "in_progress": 2}
+	for _, metric := range families[0].GetMetric() {
+		labels := map[string]string{}
+		for _, label := range metric.GetLabel() {
+			labels[label.GetName()] = label.GetValue()
+		}
+		if len(labels) != 2 || labels["endpoint"] != testMethod {
+			t.Fatal("unbounded labels", labels)
+		}
+		expected, ok := want[labels["outcome"]]
+		if !ok || metric.GetCounter().GetValue() != expected {
+			t.Fatal(labels, metric.GetCounter().GetValue(), want)
+		}
+		delete(want, labels["outcome"])
+	}
+	if len(want) != 0 {
+		t.Fatal("missing outcomes", want)
 	}
 }

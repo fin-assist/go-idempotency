@@ -46,7 +46,9 @@ func (e *Engine) encode(r Request, p Policy, result Result) ([]byte, time.Time, 
 			s.RetryAt = retry
 		}
 		var err error
-		s.Status, err = proto.Marshal(status.Convert(result.Err).Proto())
+		wire := status.Convert(result.Err).Proto()
+		wire.Message = rest.Code
+		s.Status, err = proto.Marshal(wire)
 		if err != nil {
 			return nil, time.Time{}, ErrStorage
 		}
@@ -94,9 +96,10 @@ func (e *Engine) decode(r Request, row record) (Result, error) {
 		if err := proto.Unmarshal(s.Status, st); err != nil {
 			return Result{}, ErrStorage
 		}
-		result.Err = restoreStatus(st)
-		if _, ok := finerr.ToREST(result.Err); !ok {
-			return Result{}, ErrStorage
+		var err error
+		result.Err, err = contractStatus(restoreStatus(st))
+		if err != nil {
+			return Result{}, err
 		}
 		if !s.RetryAt.IsZero() {
 			result.Err = finerr.RateLimited(s.RetryAt)
@@ -106,8 +109,8 @@ func (e *Engine) decode(r Request, row record) (Result, error) {
 }
 
 func restoreStatus(st *statuspb.Status) error {
-	// Only a previously validated finerr status is persisted; ToREST validates it
-	// again after decoding. This preserves its full typed details on replay.
+	// Only validated contract outcomes are converted here. Callers validate with
+	// ToREST and canonicalize the message, preserving the typed details.
 	return status.FromProto(st).Err() //nolint:forbidigo // persisted contract status, not a new error constructor
 }
 
@@ -141,4 +144,15 @@ func validResponse(r Response) bool {
 		}
 	}
 	return true
+}
+
+// contractStatus keeps typed contract details but never a wrapper's internal text.
+func contractStatus(err error) (error, error) {
+	rest, ok := finerr.ToREST(err)
+	if !ok {
+		return nil, ErrStorage
+	}
+	wire := status.Convert(err).Proto()
+	wire.Message = rest.Code
+	return restoreStatus(wire), nil
 }

@@ -2,6 +2,7 @@ package idempotency
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -30,12 +31,12 @@ type usageServer struct {
 func (s *usageServer) StartPhoneVerification(ctx context.Context, in *userv1.StartPhoneVerificationRequest) (*userv1.StartPhoneVerificationResponse, error) {
 	r, ok := FromContext(ctx)
 	if !ok {
-		return nil, ErrInvalidRequest
+		return nil, finerr.InternalError()
 	}
 	var err error
 	r.Hash, err = HashProto(in)
 	if err != nil {
-		return nil, err
+		return nil, contractError(err)
 	}
 	result, err := runDo(s.e, s.db, ctx, r, func(ctx context.Context) (Response, error) {
 		if _, err := effect(s.db)(ctx); err != nil {
@@ -43,6 +44,9 @@ func (s *usageServer) StartPhoneVerification(ctx context.Context, in *userv1.Sta
 		}
 		if in.GetPhone() == "wrong" {
 			return Response{}, finerr.WrongFormat()
+		}
+		if in.GetPhone() == "wrapped" {
+			return Response{}, fmt.Errorf("private SQL users_phone_key: %w", finerr.WrongFormat())
 		}
 		if in.GetPhone() == "busy" {
 			retry := s.clock.Now().Add(time.Minute)
@@ -53,17 +57,17 @@ func (s *usageServer) StartPhoneVerification(ctx context.Context, in *userv1.Sta
 		return Response{Body: body, Headers: map[string][]string{"x-result": {"saved"}}}, err
 	})
 	if err != nil {
-		return nil, err
+		return nil, contractError(err)
 	}
 	if result.Err != nil {
 		return nil, result.Err
 	}
 	if err = grpc.SetHeader(ctx, metadata.MD(result.Response.Headers)); err != nil {
-		return nil, err
+		return nil, finerr.InternalError()
 	}
 	out := new(userv1.StartPhoneVerificationResponse)
 	if err = proto.Unmarshal(result.Response.Body, out); err != nil {
-		return nil, err
+		return nil, finerr.InternalError()
 	}
 	remaining := int32(out.GetExpiresAt().AsTime().Sub(s.clock.Now()) / time.Second)
 	if remaining < 0 {
@@ -158,6 +162,24 @@ func TestUsageBusyPhoneRateLimitedRebuildsRetryInfo(t *testing.T) {
 			}
 		} else if rest.RetryAfter >= firstDelay {
 			t.Fatal("RetryInfo was not recomputed", rest.RetryAfter, firstDelay)
+		}
+	}
+	assertCount(t, db, 1)
+}
+
+func TestUsageWrappedContractErrorSanitized(t *testing.T) {
+	e, db, clock := setup(t)
+	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(e.UnaryInterceptor(func(context.Context) (string, error) { return "", nil })))
+	userv1.RegisterAuthServiceServer(srv, &usageServer{e: e, db: db, clock: clock})
+	client := userv1.NewAuthServiceClient(dialUsage(t, srv))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ctx = metadata.AppendToOutgoingContext(ctx, "idempotency-key", testKey)
+	for range 2 {
+		_, err := client.StartPhoneVerification(ctx, &userv1.StartPhoneVerificationRequest{Phone: "wrapped"})
+		assertReason(t, err, "WRONG_FORMAT")
+		if status.Convert(err).Message() != "WRONG_FORMAT" {
+			t.Fatal("wrapper leaked", err)
 		}
 	}
 	assertCount(t, db, 1)

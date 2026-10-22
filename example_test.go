@@ -92,6 +92,9 @@ func ExampleEngine_DoReserved() {
 }
 func ExampleEngine_Release() {
 	release := func(ctx context.Context, db serviceTransactions, e *idem.Engine, token idem.Reservation) error {
+		if token == (idem.Reservation{}) {
+			return nil
+		}
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 		defer cancel()
 		return db.Run(cleanup, func(txCtx context.Context) error { return e.Release(txCtx, token) })

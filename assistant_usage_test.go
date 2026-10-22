@@ -69,7 +69,7 @@ func (s *assistantUsageServer) AskQuestion(ctx context.Context, in *assistantv1.
 	var err error
 	committed := false
 	defer func() {
-		if !committed {
+		if !committed && token != (Reservation{}) {
 			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 			defer cancel()
 			if releaseErr := s.db.Run(cleanup, func(txCtx context.Context) error { return s.e.Release(txCtx, token) }); releaseErr != nil {

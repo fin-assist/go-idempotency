@@ -229,8 +229,10 @@ func (e *Engine) Release(ctx context.Context, token Reservation) error {
 func (e *Engine) perform(ctx context.Context, tx pgx.Tx, r Request, p Policy, reservation string, effect func(context.Context) (Response, error)) (Result, error) {
 	response, domainErr := effect(ctx)
 	if domainErr != nil {
-		if _, ok := finerr.ToREST(domainErr); !ok {
-			return Result{}, ErrStorage
+		var err error
+		domainErr, err = contractStatus(domainErr)
+		if err != nil {
+			return Result{}, err
 		}
 	}
 	result := Result{Response: response, Err: domainErr}

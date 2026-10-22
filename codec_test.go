@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -351,5 +352,41 @@ func TestZeroHashRejected(t *testing.T) {
 	}
 	if _, _, err := e.Reserve(ctx, r); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatal(err)
+	}
+}
+
+func TestWrappedContractErrorNeverLeaksWrapper(t *testing.T) {
+	e := unitEngine(t)
+	r := request()
+	p := e.methods[r.Endpoint]
+	wrapped := fmt.Errorf("private SQL users_phone_key: %w", finerr.WrongFormat())
+	normalized, err := contractStatus(wrapped)
+	if err != nil || status.Convert(normalized).Message() != "WRONG_FORMAT" {
+		t.Fatal(normalized, err)
+	}
+	payload, _, err := e.encode(r, p, Result{Err: wrapped})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := e.decode(r, record{payload: payload})
+	if err != nil || status.Convert(result.Err).Message() != "WRONG_FORMAT" || bytes.Contains(payload, []byte("private SQL")) {
+		t.Fatal(result, err)
+	}
+}
+func TestDuplicateRetryAtPreservesNonUTCMoment(t *testing.T) {
+	e := unitEngine(t)
+	r := request()
+	r.Endpoint = "/finassist.user.v1.AuthService/StartPhoneVerification"
+	p := Policy{TTL: time.Hour}
+	e.methods[r.Endpoint] = p
+	retry := time.Now().In(time.FixedZone("Moscow", 3*60*60)).Add(time.Minute).Truncate(time.Second)
+	payload, expires, err := e.encode(r, p, Result{Response: Response{DuplicateRetryAt: retry}, Err: finerr.RateLimited(retry)})
+	if err != nil || !expires.Equal(retry) {
+		t.Fatal(expires, err)
+	}
+	result, err := e.decode(r, record{payload: payload})
+	rest, ok := finerr.ToREST(result.Err)
+	if err != nil || !ok || rest.Metadata["retry_at"] != retry.Format(time.RFC3339) {
+		t.Fatal(result, err)
 	}
 }
