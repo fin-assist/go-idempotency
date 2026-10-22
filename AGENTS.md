@@ -33,7 +33,7 @@ for itself: what it does, its YouTrack issue, which services use it.
 | What | Where |
 |---|---|
 | Package documentation: what the library does, what it needs from the service | `doc.go` |
-| Public API of the library | root package (`*.go`); subpackages only for parts with different consumers |
+| Public API of the library | `types.go`, `context.go` (metadata/hash/completion), `engine.go` (Do/Reserve/DoReserved/Release), `storage.go` (Cleanup), `codec.go` (stored outcomes) |
 | Implementation details | `internal/` |
 | Migration source for the service runner (`Migrations`, `MigrationsName`, `MigrationsTable`) | `migrations.go`, `migrations/` |
 | PostgreSQL for tests, up → down → up check | `internal/pgtest/` (mirrors `migratetest` of the service template) |
@@ -99,7 +99,7 @@ The same priorities and rules as the services (`AGENTS.md` of `fin-assist/go-ser
   `errdetails.ErrorInfo` are forbidden by the linter; an internal refusal is a bare code built in one function with
   a nolint and its reason. Errors the service handles are exported sentinel values or types, checked with
   `errors.Is` / `errors.As`, and listed in the doc comment.
-- Database: SQL with parameters only (`$1`), table and column names are constants; tables are named
+- Database: value/state validation belongs in Go, not CHECK/EXCLUDE, triggers or stored functions; docs/schema.md maps each invariant to its code and tests. SQL with parameters only (`$1`), table and column names are constants; tables are named
   `<library>_<name>` so they never collide with a service's. Migrations follow `docs/migrations.md` of the service
   template; a released migration never changes (`docs/releasing.md`, «Миграции»).
 - Time: "now" comes from the injected clock, never `time.Now()` in logic or queries; durations for metrics and
@@ -111,6 +111,16 @@ The same priorities and rules as the services (`AGENTS.md` of `fin-assist/go-ser
   object ID or free text; the README lists them.
 - Dev-only behaviour (a dev token source, a fake verifier) is a separate constructor the service can call only in
   `ENV=dev`, and the library documents that; it never switches on by itself.
+
+## Idempotency integration
+
+- Core Request.Endpoint is a stable operation ID (1-256 bytes), independent of transport. The gRPC adapter supplies a full method; HTTP callers use a static operation name or method/route template and construct Request explicitly. Response.Body is opaque service-serialized data; http_usage_test.go covers JSON over a real HTTP handler.
+
+- The service starts every primary READ COMMITTED transaction. `WithCompletion` wraps the entire effect transaction and commit; Do/DoReserved observe both original request cancellation and the completion deadline until the callback starts.
+- Return the Do error from the transaction callback; `Result.Err` is a validated contract error returned to gRPC only after commit. `ErrNotStored` requires rollback and preserves the domain error in Result.Err.
+- AskQuestion: commit Reserve, check consent outside the transaction, then DoReserved; rollback and Release in a new bounded transaction on failure. Reservation TTL is 15 seconds, checked again at completion.
+- RefreshTokens requires encrypted 60-second storage; Register and StartPhoneVerification also require encryption of their token-bearing responses. Only the busy-phone-number outcome of StartPhoneVerification opts into saved RATE_LIMITED with DuplicateRetryAt.
+- README contains wiring, replay-time expires_in handling, cleanup, purge and endpoint checklist; usage_test.go exercises a generated client against real gRPC/PostgreSQL.
 
 ## Tests
 
