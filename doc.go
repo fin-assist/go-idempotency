@@ -1,11 +1,11 @@
-// Package idempotency stores a protobuf response or a contract error atomically
-// with a service's effect, scoped by verified user, full method and client key.
+// Package idempotency stores a serialized response or a contract error atomically
+// with a service's effect, scoped by verified user, stable operation ID and client key.
 // It supports index-lock deduplication and short fenced reservations for preflight
 // network checks. The service owns all primary READ COMMITTED transactions.
 //
 // Use Engine.WithCompletion before starting the effect transaction so cancellation
 // after the effect begins cannot prevent commit. Return Do's error from the
-// transaction callback; return Result.Err to gRPC only after commit. On any Do
+// transaction callback; return Result.Err to the caller only after commit. On any Do
 // error roll back; ErrNotStored carries the original error in Result.Err.
 //
 // See README for migration wiring, interceptor order, reservation release, refresh

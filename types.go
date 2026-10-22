@@ -30,7 +30,7 @@ type Transactions interface {
 	Tx(context.Context) (pgx.Tx, bool)
 }
 
-// Policy configures one exact full gRPC method. A zero TTL means 24 hours.
+// Policy configures one stable operation ID. A zero TTL means 24 hours.
 type Policy struct {
 	TTL time.Duration
 	// Encrypt requires Options.Cipher and encrypts the entire stored outcome. Use
@@ -40,6 +40,8 @@ type Policy struct {
 
 // Options are copied by New. Clock and Cipher must be safe for concurrent use.
 type Options struct {
+	// Methods maps stable operation IDs to policies. For gRPC use the full method;
+	// for HTTP use a fixed operation name or method/route, never a URL with user IDs.
 	Methods map[string]Policy
 	Clock   func() time.Time
 	// Cipher is an AES-GCM AEAD constructed by NewCipher. Keep its key for at least
@@ -53,7 +55,8 @@ type Options struct {
 	Registerer prometheus.Registerer
 }
 
-// Request identifies a logical action. Scope is a verified user UUID, or empty
+// Request identifies a logical action. Endpoint is a configured stable operation
+// ID, independent of transport. Scope is a verified user UUID, or empty
 // for a no-user method. Key is the client's UUID. Hash must cover the whole input.
 type Request struct {
 	Scope    string
@@ -62,8 +65,9 @@ type Request struct {
 	Hash     [32]byte
 }
 
-// Response is the protobuf wire representation of a successful RPC and bounded
-// application response headers. Errors are returned separately by the effect.
+// Response holds the serialized successful reply and bounded application headers.
+// The service chooses its format (for example protobuf for gRPC, JSON for HTTP).
+// Errors are returned separately by the effect.
 type Response struct {
 	Body    []byte
 	Headers map[string][]string

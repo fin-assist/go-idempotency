@@ -20,7 +20,7 @@ import (
 const nilScope = "00000000-0000-0000-0000-000000000000"
 const reservationTTL = 15 * time.Second
 
-// New validates explicit method policies, clock, transaction provider and registry.
+// New validates explicit operation policies, clock, transaction provider and registry.
 // Register metrics once per service. A registration error is returned to the caller.
 func New(txs Transactions, o Options) (*Engine, error) {
 	if txs == nil || o.Clock == nil || o.Registerer == nil || len(o.Methods) == 0 {
@@ -37,7 +37,7 @@ func New(txs Transactions, o Options) (*Engine, error) {
 	}
 	methods := make(map[string]Policy, len(o.Methods))
 	for method, p := range o.Methods {
-		if !strings.HasPrefix(method, "/") || strings.Count(method, "/") != 2 || len(method) > 256 || strings.HasSuffix(method, "/") {
+		if method == "" || len(method) > 256 || strings.TrimSpace(method) != method || strings.ContainsAny(method, "\r\n\x00") {
 			return nil, ErrInvalidRequest
 		}
 		if p.TTL == 0 {

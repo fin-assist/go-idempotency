@@ -46,7 +46,7 @@ func TestNewValidation(t *testing.T) {
 		change func(*Options)
 	}{
 		{"methods", func(o *Options) { o.Methods = nil }}, {"clock", func(o *Options) { o.Clock = nil }}, {"registry", func(o *Options) { o.Registerer = nil }},
-		{"method", func(o *Options) { o.Methods = map[string]Policy{"bad": {}} }}, {"ttl", func(o *Options) { o.Methods[testMethod] = Policy{TTL: -1} }},
+		{"method", func(o *Options) { o.Methods = map[string]Policy{"": {}} }}, {"ttl", func(o *Options) { o.Methods[testMethod] = Policy{TTL: -1} }},
 		{"cipher", func(o *Options) { o.Methods[testMethod] = Policy{Encrypt: true} }}, {"refresh", func(o *Options) { o.Methods = map[string]Policy{"/x.S/RefreshTokens": {}} }},
 		{"auth secret", func(o *Options) { o.Methods = map[string]Policy{"/finassist.user.v1.AuthService/Register": {}} }},
 		{"lock", func(o *Options) { o.LockTimeout = time.Nanosecond }}, {"effect", func(o *Options) { o.EffectTimeout = -1 }},
@@ -400,6 +400,19 @@ func TestMethodLengthValidatedBeforeDatabase(t *testing.T) {
 		}
 		if size == 257 && !errors.Is(err, ErrInvalidRequest) {
 			t.Fatal("oversized method accepted", err)
+		}
+	}
+}
+
+func TestOperationIDsAreIndependentOfTransport(t *testing.T) {
+	for _, operation := range []string{testMethod, "POST /v1/actions", "actions.create"} {
+		if _, err := New(noTx{}, Options{Methods: map[string]Policy{operation: {}}, Clock: time.Now, Registerer: prometheus.NewRegistry()}); err != nil {
+			t.Fatal(operation, err)
+		}
+	}
+	for _, operation := range []string{"", " ", " actions.create", "actions.create ", "actions\ncreate", "actions\x00create"} {
+		if _, err := New(noTx{}, Options{Methods: map[string]Policy{operation: {}}, Clock: time.Now, Registerer: prometheus.NewRegistry()}); !errors.Is(err, ErrInvalidRequest) {
+			t.Fatal(operation, err)
 		}
 	}
 }

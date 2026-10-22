@@ -99,7 +99,7 @@ The same priorities and rules as the services (`AGENTS.md` of `fin-assist/go-ser
   `errdetails.ErrorInfo` are forbidden by the linter; an internal refusal is a bare code built in one function with
   a nolint and its reason. Errors the service handles are exported sentinel values or types, checked with
   `errors.Is` / `errors.As`, and listed in the doc comment.
-- Database: SQL with parameters only (`$1`), table and column names are constants; tables are named
+- Database: value/state validation belongs in Go, not CHECK/EXCLUDE, triggers or stored functions; docs/schema.md maps each invariant to its code and tests. SQL with parameters only (`$1`), table and column names are constants; tables are named
   `<library>_<name>` so they never collide with a service's. Migrations follow `docs/migrations.md` of the service
   template; a released migration never changes (`docs/releasing.md`, «Миграции»).
 - Time: "now" comes from the injected clock, never `time.Now()` in logic or queries; durations for metrics and
@@ -113,6 +113,8 @@ The same priorities and rules as the services (`AGENTS.md` of `fin-assist/go-ser
   `ENV=dev`, and the library documents that; it never switches on by itself.
 
 ## Idempotency integration
+
+- Core Request.Endpoint is a stable operation ID (1-256 bytes), independent of transport. The gRPC adapter supplies a full method; HTTP callers use a static operation name or method/route template and construct Request explicitly. Response.Body is opaque service-serialized data; http_usage_test.go covers JSON over a real HTTP handler.
 
 - The service starts every primary READ COMMITTED transaction. `WithCompletion` wraps the entire effect transaction and commit; Do uses original request cancellation until the callback starts.
 - Return the Do error from the transaction callback; `Result.Err` is a validated contract error returned to gRPC only after commit. `ErrNotStored` requires rollback and preserves the domain error in Result.Err.

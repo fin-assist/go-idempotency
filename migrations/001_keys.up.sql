@@ -14,7 +14,7 @@ CREATE INDEX idempotency_keys_expires_idx ON idempotency_keys (expires_at);
 
 COMMENT ON TABLE idempotency_keys IS 'Ключи идемпотентности: незавершённые резервы и сохранённые результаты запросов.';
 COMMENT ON COLUMN idempotency_keys.scope IS 'Область ключа: UUID пользователя из проверенного токена; nil-UUID для методов без пользователя.';
-COMMENT ON COLUMN idempotency_keys.endpoint IS 'Полное имя gRPC-метода, например /finassist.user.v1.AuthService/Register.';
+COMMENT ON COLUMN idempotency_keys.endpoint IS 'Стабильный идентификатор операции в сервисе: HTTP-метод и маршрут либо полное имя gRPC-метода.';
 COMMENT ON COLUMN idempotency_keys.key IS 'UUID логического действия клиента из metadata idempotency-key.';
 COMMENT ON COLUMN idempotency_keys.request_hash IS 'SHA-256 запроса или содержимого загруженного файла; используется для обнаружения конфликта тела.';
 COMMENT ON COLUMN idempotency_keys.done IS 'Признак сохранённого результата: true после завершения эффекта; false для незавершённого запроса или резерва.';
