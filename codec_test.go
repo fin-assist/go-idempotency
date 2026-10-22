@@ -237,3 +237,104 @@ func TestPreconditionsAndStorageErrors(t *testing.T) {
 		t.Fatal("storage leak")
 	}
 }
+
+func TestCodecInvalidOutcomesFailClosed(t *testing.T) {
+	e := unitEngine(t)
+	r := Request{Scope: nilScope, Endpoint: testMethod, Key: testKey}
+	p := Policy{TTL: time.Hour}
+	retry := time.Now().Add(time.Hour)
+	for _, result := range []Result{
+		{Response: Response{DuplicateRetryAt: retry}},
+		{Response: Response{DuplicateRetryAt: retry}, Err: finerr.RateLimited(retry)},
+		{Response: Response{DuplicateRetryAt: retry}, Err: finerr.WrongFormat()},
+	} {
+		if _, _, err := e.encode(r, p, result); !errors.Is(err, ErrInvalidRequest) {
+			t.Fatal(err)
+		}
+	}
+	invalidStatus := finerr.ValidationError(&errdetails.BadRequest_FieldViolation{Field: string([]byte{255}), Reason: "INVALID_FORMAT"})
+	if _, _, err := e.encode(r, p, Result{Err: invalidStatus}); !errors.Is(err, ErrNotStored) {
+		t.Fatal(err)
+	}
+	e.methods[testMethod] = p
+	for _, payload := range []string{"broken", `{"Status":"AQ=="}`, `{"Status":"CA4="}`, `{"Response":{"Headers":{"BAD":["v"]}}}`} {
+		if _, err := e.decode(r, record{payload: []byte(payload)}); !errors.Is(err, ErrStorage) {
+			t.Fatal(payload, err)
+		}
+	}
+	e.methods[testMethod] = Policy{Encrypt: true}
+	if _, err := e.decode(r, record{encrypted: true}); !errors.Is(err, ErrStorage) {
+		t.Fatal(err)
+	}
+	if _, err := HashProto(structpb.NewStringValue(strings.Repeat("x", maxBody+1))); err == nil {
+		t.Fatal("oversize proto accepted")
+	}
+	if _, err := HashProto(structpb.NewStringValue(string([]byte{255}))); err == nil {
+		t.Fatal("invalid utf8 accepted")
+	}
+}
+
+type unavailableRow struct{}
+
+func (unavailableRow) Scan(...any) error { return errors.New("private database failure") }
+
+type unavailableTx struct{ pgx.Tx }
+
+func (unavailableTx) QueryRow(context.Context, string, ...any) pgx.Row { return unavailableRow{} }
+func (unavailableTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, errors.New("private database failure")
+}
+
+type unavailableTransactions struct{}
+
+func (unavailableTransactions) Tx(context.Context) (pgx.Tx, bool) { return unavailableTx{}, true }
+func TestDatabaseUnavailabilityNeverRunsAnEffect(t *testing.T) {
+	e := unitEngine(t)
+	e.txs = unavailableTransactions{}
+	r := request()
+	token := Reservation{request: r, id: "owner"}
+	ctx, cancel := e.WithCompletion(context.Background())
+	defer cancel()
+	fn := func(context.Context) (Response, error) { t.Fatal("effect ran without storage"); return Response{}, nil }
+	if _, err := e.Do(ctx, r, fn); !errors.Is(err, ErrStorage) {
+		t.Fatal(err)
+	}
+	if _, _, err := e.Reserve(ctx, r); !errors.Is(err, ErrStorage) {
+		t.Fatal(err)
+	}
+	if _, err := e.DoReserved(ctx, token, fn); !errors.Is(err, ErrStorage) {
+		t.Fatal(err)
+	}
+	if err := e.Release(ctx, token); !errors.Is(err, ErrStorage) {
+		t.Fatal(err)
+	}
+	if _, err := e.Cleanup(ctx, 10); !errors.Is(err, ErrStorage) {
+		t.Fatal(err)
+	}
+	parent, stop := context.WithCancel(context.Background())
+	stop()
+	cancelled, finish := e.WithCompletion(parent)
+	defer finish()
+	if _, err := e.Do(cancelled, r, fn); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if _, err := e.DoReserved(cancelled, token, fn); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if _, err := e.Do(ctx, Request{}, fn); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatal(err)
+	}
+	if _, err := e.DoReserved(context.Background(), token, fn); !errors.Is(err, ErrCompletionContext) {
+		t.Fatal(err)
+	}
+	if _, _, err := e.Reserve(ctx, Request{}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatal(err)
+	}
+	e.txs = noTx{}
+	if _, err := e.DoReserved(ctx, token, fn); !errors.Is(err, ErrNoTransaction) {
+		t.Fatal(err)
+	}
+	if err := e.Release(ctx, token); !errors.Is(err, ErrNoTransaction) {
+		t.Fatal(err)
+	}
+}
