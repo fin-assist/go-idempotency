@@ -2,6 +2,7 @@ package idempotency
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"testing"
@@ -57,6 +58,9 @@ func (s *usageServer) StartPhoneVerification(ctx context.Context, in *userv1.Sta
 		return Response{Body: body, Headers: map[string][]string{"x-result": {"saved"}}}, err
 	})
 	if err != nil {
+		if errors.Is(err, ErrNotStored) {
+			return nil, result.Err
+		}
 		return nil, contractError(err)
 	}
 	if result.Err != nil {
