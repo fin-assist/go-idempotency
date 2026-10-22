@@ -33,7 +33,7 @@ for itself: what it does, its YouTrack issue, which services use it.
 | What | Where |
 |---|---|
 | Package documentation: what the library does, what it needs from the service | `doc.go` |
-| Public API of the library | root package (`*.go`); subpackages only for parts with different consumers |
+| Public API of the library | `types.go`, `context.go` (metadata/hash/completion), `engine.go` (Do/Reserve/DoReserved/Release), `storage.go` (Cleanup), `codec.go` (stored outcomes) |
 | Implementation details | `internal/` |
 | Migration source for the service runner (`Migrations`, `MigrationsName`, `MigrationsTable`) | `migrations.go`, `migrations/` |
 | PostgreSQL for tests, up → down → up check | `internal/pgtest/` (mirrors `migratetest` of the service template) |
@@ -111,6 +111,14 @@ The same priorities and rules as the services (`AGENTS.md` of `fin-assist/go-ser
   object ID or free text; the README lists them.
 - Dev-only behaviour (a dev token source, a fake verifier) is a separate constructor the service can call only in
   `ENV=dev`, and the library documents that; it never switches on by itself.
+
+## Idempotency integration
+
+- The service starts every primary READ COMMITTED transaction. `WithCompletion` wraps the entire effect transaction and commit; Do uses original request cancellation until the callback starts.
+- Return the Do error from the transaction callback; `Result.Err` is a domain error returned to gRPC only after commit. `ErrNotStored` requires rollback and preserves the domain error in Result.Err.
+- AskQuestion: commit Reserve, check consent outside the transaction, then DoReserved; rollback and Release in a new bounded transaction on failure. Reservation TTL is 15 seconds, checked again at completion.
+- RefreshTokens requires encrypted 60-second storage; Register and StartPhoneVerification also require encryption of their token-bearing responses. Only the busy-phone-number outcome of StartPhoneVerification opts into saved RATE_LIMITED with DuplicateRetryAt.
+- README contains wiring, replay-time expires_in handling, cleanup, purge and endpoint checklist; usage_test.go exercises a generated client against real gRPC/PostgreSQL.
 
 ## Tests
 
@@ -232,7 +240,15 @@ another user or a compromised service gets to it. Check:
 - Dev hooks: a dev-only constructor cannot be reached by configuration in `stage` or `prod`.
 - New dependencies: flag a new library that gets network, storage or data access, so the owner decides on it.
 
-### Tests
+### Idempotency integration
+
+- The service starts every primary READ COMMITTED transaction. `WithCompletion` wraps the entire effect transaction and commit; Do uses original request cancellation until the callback starts.
+- Return the Do error from the transaction callback; `Result.Err` is a domain error returned to gRPC only after commit. `ErrNotStored` requires rollback and preserves the domain error in Result.Err.
+- AskQuestion: commit Reserve, check consent outside the transaction, then DoReserved; rollback and Release in a new bounded transaction on failure. Reservation TTL is 15 seconds, checked again at completion.
+- RefreshTokens requires encrypted 60-second storage; Register and StartPhoneVerification also require encryption of their token-bearing responses. Only the busy-phone-number outcome of StartPhoneVerification opts into saved RATE_LIMITED with DuplicateRetryAt.
+- README contains wiring, replay-time expires_in handling, cleanup, purge and endpoint checklist; usage_test.go exercises a generated client against real gRPC/PostgreSQL.
+
+## Tests
 
 The criterion is not a percentage of lines but whether the use cases of the changed functionality are covered; the
 80 % target is the author's minimum. For each behaviour the PR adds or changes:

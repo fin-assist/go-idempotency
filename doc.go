@@ -1,5 +1,13 @@
-// Package idempotency is the idempotency library of «Понятные финансы» (fin-assist/go-idempotency, FIN-78).
+// Package idempotency stores a protobuf response or a contract error atomically
+// with a service's effect, scoped by verified user, full method and client key.
+// It supports index-lock deduplication and short fenced reservations for preflight
+// network checks. The service owns all primary READ COMMITTED transactions.
 //
-// The skeleton comes from fin-assist/go-library-template; the implementation, what it needs
-// from the service and the integration guide (README.md, «Внедрение») come with FIN-78.
+// Use Engine.WithCompletion before starting the effect transaction so cancellation
+// after the effect begins cannot prevent commit. Return Do's error from the
+// transaction callback; return Result.Err to gRPC only after commit. On any Do
+// error roll back; ErrNotStored carries the original error in Result.Err.
+//
+// See README for migration wiring, interceptor order, reservation release, refresh
+// encryption, cleanup and special phone-verification replay rules.
 package idempotency
