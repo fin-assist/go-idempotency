@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY idempotency_keys_owner_idx;

@@ -252,7 +252,7 @@ func TestPostgresConcurrentTimeoutAndWaitForCommit(t *testing.T) {
 					case <-ctx.Done():
 						return Response{}, ctx.Err()
 					}
-					return effect(db)(ctx)
+					return ownedEffect(db, resultOwner)(ctx)
 				})
 				first <- err
 			}()
@@ -262,7 +262,7 @@ func TestPostgresConcurrentTimeoutAndWaitForCommit(t *testing.T) {
 				t.Fatal(ctx.Err())
 			}
 			if timeout {
-				_, err := runDo(e, db, ctx, request(), effect(db))
+				_, err := runDo(e, db, ctx, request(), ownedEffect(db, foreignOwner))
 				assertReason(t, err, "REQUEST_IN_PROGRESS")
 				close(finish)
 			} else {
@@ -271,7 +271,10 @@ func TestPostgresConcurrentTimeoutAndWaitForCommit(t *testing.T) {
 					err    error
 				}
 				duplicate := make(chan reply, 1)
-				go func() { result, err := runDo(e, db, ctx, request(), effect(db)); duplicate <- reply{result, err} }()
+				go func() {
+					result, err := runDo(e, db, ctx, request(), ownedEffect(db, foreignOwner))
+					duplicate <- reply{result, err}
+				}()
 				// Observe the real second connection waiting on the first key's lock.
 				for {
 					var waiting bool
@@ -288,7 +291,7 @@ func TestPostgresConcurrentTimeoutAndWaitForCommit(t *testing.T) {
 				}
 				close(finish)
 				got := <-duplicate
-				if got.err != nil || !got.result.Replayed {
+				if got.err != nil || !got.result.Replayed || got.result.Response.OwnerID != resultOwner {
 					t.Fatal(got)
 				}
 			}

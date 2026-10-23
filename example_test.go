@@ -112,3 +112,11 @@ func ExampleEngine_UnaryInterceptor() {
 	}
 	_ = configure
 }
+
+func ExampleResponse() {
+	// Set the owner only after verifying the secret and finding/creating the account
+	// inside the effect. Keep Request.Scope empty for no-user methods.
+	response := idem.Response{Body: []byte("serialized reply"), OwnerID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}
+	fmt.Println(response.OwnerID)
+	// Output: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+}
