@@ -2,6 +2,8 @@ package idempotency
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"net"
 	"sync/atomic"
@@ -77,7 +79,8 @@ func (s *ownerUsageServer) Register(ctx context.Context, in *userv1.RegisterRequ
 	return out, nil
 }
 
-func TestUsageNoUserOwnerGuardsCachedSecrets(t *testing.T) {
+func ownerUsageClient(t *testing.T) (*Engine, *serviceDB, *ownerUsageServer, userv1.AuthServiceClient) {
+	t.Helper()
 	e, db, _ := setup(t)
 	e.methods[userv1.AuthService_Register_FullMethodName] = Policy{TTL: 24 * time.Hour, Encrypt: true}
 	handler := &ownerUsageServer{e: e, db: db}
@@ -91,7 +94,11 @@ func TestUsageNoUserOwnerGuardsCachedSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	client := userv1.NewAuthServiceClient(conn)
+	return e, db, handler, userv1.NewAuthServiceClient(conn)
+}
+
+func TestUsageNoUserOwnerGuardsCachedSecrets(t *testing.T) {
+	_, db, handler, client := ownerUsageClient(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	ctx = metadata.AppendToOutgoingContext(ctx, "idempotency-key", testKey)
@@ -117,5 +124,57 @@ func TestUsageNoUserOwnerGuardsCachedSecrets(t *testing.T) {
 	var owner string
 	if err = db.pool.QueryRow(t.Context(), `SELECT owner_id::text FROM idempotency_keys WHERE scope=$1`, nilScope).Scan(&owner); err != nil || owner != resultOwner {
 		t.Fatal(owner, err)
+	}
+}
+
+func TestUsageOwnerlessAuthReplayDoesNotReleaseSecrets(t *testing.T) {
+	e, db, _, client := ownerUsageClient(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	ctx = metadata.AppendToOutgoingContext(ctx, "idempotency-key", testKey)
+	in := &userv1.RegisterRequest{RegistrationToken: "verified-secret", PdConsentAccepted: true, PdConsentVersion: "v1"}
+	first, err := client.Register(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := proto.Marshal(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reproduce v0.1.0's encrypted successful auth outcome: the JSON has no
+	// OwnerID property, and the nullable migration column contains NULL.
+	type legacyResponse struct {
+		Body             []byte
+		Headers          map[string][]string
+		DuplicateRetryAt time.Time
+	}
+	legacy, err := json.Marshal(struct {
+		Response legacyResponse
+		Status   []byte
+		RetryAt  time.Time
+	}{Response: legacyResponse{Body: body}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce := make([]byte, e.cipher.NonceSize())
+	if _, err = rand.Read(nonce); err != nil {
+		t.Fatal(err)
+	}
+	r := Request{Scope: nilScope, Endpoint: userv1.AuthService_Register_FullMethodName, Key: testKey}
+	encrypted := e.cipher.Seal(nonce, nonce, legacy, aad(r))
+	if _, err = db.pool.Exec(t.Context(), `UPDATE idempotency_keys SET owner_id=NULL,payload=$1 WHERE scope=$2 AND endpoint=$3 AND key=$4`, encrypted, nilScope, r.Endpoint, testKey); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		out, err := client.Register(ctx, in)
+		assertReason(t, err, "INVALID_TOKEN")
+		if out != nil {
+			t.Fatal("ownerless replay released credentials")
+		}
+	}
+	assertCount(t, db, 1)
+	var unowned bool
+	if err = db.pool.QueryRow(t.Context(), `SELECT owner_id IS NULL FROM idempotency_keys WHERE key=$1`, testKey).Scan(&unowned); err != nil || !unowned {
+		t.Fatal(unowned, err)
 	}
 }
