@@ -40,6 +40,16 @@ FK на таблицы сервиса нет: связь должна переж
 
 ## Удаление записей
 
+`ReleaseIfCurrent` (FIN-229) под блокировкой ключа проверяет scope/endpoint/key,
+request_hash, reservation_id, `done=false` и `expires_at > Clock()` после ожидания.
+Только факт удаления разрешает сервису компенсирующий эффект в той же транзакции;
+откат восстанавливает строку вместе с эффектом. Схема не меняется. `Release` по-прежнему
+подходит для уборки, включая истёкший собственный резерв, но не подтверждает владение.
+Проверки: `TestPostgresConditionalReleaseAtomicCompensation`,
+`TestPostgresConditionalReleaseFencesOwnership`, `TestPostgresConditionalReleaseWaitersCommitAndRollback`,
+`TestPostgresConditionalReleaseChecksExpiryAfterLock`, `TestPostgresConditionalReleaseErrors`,
+`TestUsageConditionalReleaseAllowsSameKeyRetryAfterCompensation`.
+
 Сервис регистрирует периодическое задание, вызывающее `Cleanup` в коротких primary-транзакциях. За вызов удаляется не больше заданной пачки просроченных строк; заблокированные строки пропускаются через `SKIP LOCKED`. Обычный TTL — 24 часа, для refresh — 60 секунд; незавершённый резерв живёт 15 секунд. TTL сам по себе не запускает фоновый процесс: физическая очистка происходит при проходе задания либо перезахвате просроченного ключа.
 
 При удалении пользователя сервис удаляет строки `WHERE scope=$1::uuid OR owner_id=$1::uuid` в `PurgeUserData`, передавая проверенный ненулевой user_id. Nil-UUID методов без пользователя целиком не очищается. Tombstone и блокировки сервиса сериализуют удаление с эффектами/выдачей replay; индекс и поле владельца сами этого не обеспечивают. Cleanup удаляет строку целиком вместе с владельцем: осиротевшие связи невозможны. Проверки очистки — `TestPostgresEncryptionCleanupAndLockSetting` и `TestPostgresCleanupSkipsLockedAndExpiredSavedReservationNeedsNewReserve`.
