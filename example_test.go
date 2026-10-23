@@ -113,6 +113,19 @@ func ExampleEngine_UnaryInterceptor() {
 	_ = configure
 }
 
+func ExampleEngine_ReleaseIfCurrent() {
+	compensate := func(ctx context.Context, db serviceTransactions, e *idem.Engine, token idem.Reservation, refund func(context.Context) error) error {
+		return db.Run(ctx, func(txCtx context.Context) error {
+			released, err := e.ReleaseIfCurrent(txCtx, token)
+			if err != nil || !released {
+				return err
+			}
+			return refund(txCtx) // A failure rolls back BOTH the release and refund.
+		})
+	}
+	_ = compensate
+}
+
 func ExampleResponse() {
 	// Set the owner only after verifying the secret and finding/creating the account
 	// inside the effect. Keep Request.Scope empty for no-user methods.

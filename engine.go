@@ -236,6 +236,54 @@ func (e *Engine) Release(ctx context.Context, token Reservation) error {
 	})
 }
 
+// ReleaseIfCurrent removes only the caller's unfinished, unexpired reservation
+// and reports whether it did so. Use true to authorize a compensating database
+// effect in the SAME service transaction, then commit both together. On false,
+// ownership was lost (or token was zero): do not compensate. No response is saved.
+//
+// A zero token returns false, nil without requiring a transaction. Invalid tokens
+// return ErrInvalidRequest; a missing transaction returns ErrNoTransaction. Any
+// storage/lock/cancellation error requires rollback of the whole transaction.
+// Unlike Release, an expired reservation is left untouched and returns false.
+func (e *Engine) ReleaseIfCurrent(ctx context.Context, token Reservation) (bool, error) {
+	if token == (Reservation{}) {
+		return false, nil
+	}
+	r, _, err := e.validate(token.request)
+	if err != nil || token.id == "" {
+		return false, ErrInvalidRequest
+	}
+	tx, err := e.transaction(ctx)
+	if err != nil {
+		return false, err
+	}
+	var released bool
+	err = e.locked(ctx, tx, func() error {
+		// Read the clock after acquiring the row: a waiter must not authorize
+		// compensation using the timestamp from before its lock wait.
+		row, err := readRecord(ctx, tx, r)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if row.done || row.reservation != token.id || row.hash != r.Hash || !row.expires.After(e.now()) {
+			return nil
+		}
+		tag, err := tx.Exec(ctx, `DELETE FROM idempotency_keys WHERE scope=$1 AND endpoint=$2 AND key=$3 AND NOT done AND reservation_id=$4 AND expires_at>$5 AND request_hash=$6`, r.Scope, r.Endpoint, r.Key, token.id, e.now(), r.Hash[:])
+		if err != nil {
+			return err
+		}
+		released = tag.RowsAffected() == 1
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return released, nil
+}
+
 func (e *Engine) perform(ctx context.Context, tx pgx.Tx, r Request, p Policy, reservation string, effect func(context.Context) (Response, error)) (Result, error) {
 	response, domainErr := effect(ctx)
 	response.OwnerID = strings.ToLower(response.OwnerID)
