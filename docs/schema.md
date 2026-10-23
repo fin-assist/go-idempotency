@@ -48,6 +48,7 @@ request_hash, reservation_id, `done=false` и `expires_at > Clock()` после 
 Проверки: `TestPostgresConditionalReleaseAtomicCompensation`,
 `TestPostgresConditionalReleaseFencesOwnership`, `TestPostgresConditionalReleaseWaitersCommitAndRollback`,
 `TestPostgresConditionalReleaseChecksExpiryAfterLock`, `TestPostgresConditionalReleaseErrors`,
+`TestPostgresCompletionRacesConditionalCompensation`,
 `TestUsageConditionalReleaseAllowsSameKeyRetryAfterCompensation`.
 
 Сервис регистрирует периодическое задание, вызывающее `Cleanup` в коротких primary-транзакциях. За вызов удаляется не больше заданной пачки просроченных строк; заблокированные строки пропускаются через `SKIP LOCKED`. Обычный TTL — 24 часа, для refresh — 60 секунд; незавершённый резерв живёт 15 секунд. TTL сам по себе не запускает фоновый процесс: физическая очистка происходит при проходе задания либо перезахвате просроченного ключа.
