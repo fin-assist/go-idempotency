@@ -238,6 +238,7 @@ func (e *Engine) Release(ctx context.Context, token Reservation) error {
 
 func (e *Engine) perform(ctx context.Context, tx pgx.Tx, r Request, p Policy, reservation string, effect func(context.Context) (Response, error)) (Result, error) {
 	response, domainErr := effect(ctx)
+	response.OwnerID = strings.ToLower(response.OwnerID)
 	if domainErr != nil {
 		var err error
 		domainErr, err = contractStatus(domainErr)
@@ -250,7 +251,7 @@ func (e *Engine) perform(ctx context.Context, tx pgx.Tx, r Request, p Policy, re
 	if err != nil {
 		return result, err
 	}
-	tag, err := tx.Exec(ctx, `UPDATE idempotency_keys SET done=true, payload=$4, encrypted=$5, expires_at=$6, reservation_id='' WHERE scope=$1 AND endpoint=$2 AND key=$3 AND ($7='' OR (reservation_id=$7 AND expires_at>$8))`, r.Scope, r.Endpoint, r.Key, encoded, p.Encrypt, expires, reservation, e.now())
+	tag, err := tx.Exec(ctx, `UPDATE idempotency_keys SET done=true, payload=$4, encrypted=$5, expires_at=$6, reservation_id='', owner_id=NULLIF($9,'')::uuid WHERE scope=$1 AND endpoint=$2 AND key=$3 AND ($7='' OR (reservation_id=$7 AND expires_at>$8))`, r.Scope, r.Endpoint, r.Key, encoded, p.Encrypt, expires, reservation, e.now(), response.OwnerID)
 	if err != nil {
 		return Result{}, storageError(err)
 	}

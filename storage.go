@@ -9,6 +9,7 @@ import (
 )
 
 type record struct {
+	owner       string
 	hash        [32]byte
 	done        bool
 	payload     []byte
@@ -20,7 +21,7 @@ type record struct {
 func readRecord(ctx context.Context, tx pgx.Tx, r Request) (record, error) {
 	var row record
 	var hash []byte
-	err := tx.QueryRow(ctx, `SELECT request_hash,done,payload,encrypted,expires_at,reservation_id FROM idempotency_keys WHERE scope=$1 AND endpoint=$2 AND key=$3 FOR UPDATE`, r.Scope, r.Endpoint, r.Key).Scan(&hash, &row.done, &row.payload, &row.encrypted, &row.expires, &row.reservation)
+	err := tx.QueryRow(ctx, `SELECT request_hash,done,payload,encrypted,expires_at,reservation_id,COALESCE(owner_id::text,'') FROM idempotency_keys WHERE scope=$1 AND endpoint=$2 AND key=$3 FOR UPDATE`, r.Scope, r.Endpoint, r.Key).Scan(&hash, &row.done, &row.payload, &row.encrypted, &row.expires, &row.reservation, &row.owner)
 	if err != nil {
 		return row, err
 	}

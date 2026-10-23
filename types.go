@@ -69,6 +69,14 @@ type Request struct {
 // The service chooses its format (for example protobuf for gRPC, JSON for HTTP).
 // Errors are returned separately by the effect.
 type Response struct {
+	// OwnerID optionally associates the stored result with a user discovered by
+	// the effect, for example Register or RefreshTokens in the shared no-user
+	// scope. Use only a UUID verified by business logic, never client identity.
+	// Empty means unowned; nil-UUID is invalid. A user scope accepts only its own
+	// owner. The library normalizes case and returns OwnerID on fresh and replayed
+	// results. The service must check its tombstone before returning a replay.
+	// This metadata does not change the key scope or authorize access.
+	OwnerID string
 	Body    []byte
 	Headers map[string][]string
 	// DuplicateRetryAt explicitly opts into the busy-phone-number RATE_LIMITED
