@@ -36,7 +36,7 @@ FK на таблицы сервиса нет: связь должна переж
 
 Проверки: `TestCodecOwnerValidationAndBinding`, `TestPostgresOwnerAtomicReplayPurgeAndCleanup`,
 `TestPostgresOwnerInvalidAndStorageFailureRollBack`, `TestPostgresReservedOwnerReplaysThroughEveryEntryPoint`,
-`TestUsageNoUserOwnerGuardsCachedSecrets`. Старый формат payload проверяется явно.
+`TestUsageNoUserOwnerGuardsCachedSecrets`. Старый формат payload проверяется явно; `TestPostgresUpgradeKeepsLegacyOwnerlessReplay` применяет новые миграции к живой схеме v0.1.0 с сохранённым ответом.
 
 ## Удаление записей
 

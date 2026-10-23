@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"strings"
 	"testing"
 	"time"
@@ -266,4 +267,37 @@ func TestPostgresOwnedCacheableErrorPreservesOwner(t *testing.T) {
 	}
 	assertReason(t, replay.Err, "WRONG_FORMAT")
 	assertCount(t, db, 1)
+}
+
+func TestPostgresUpgradeKeepsLegacyOwnerlessReplay(t *testing.T) {
+	e, db, _ := setup(t)
+	// Recreate v0.1.0's live schema and save a result in its original JSON format.
+	for _, file := range []string{"003_result_owner_index.down.sql", "002_result_owner.down.sql"} {
+		sql, err := fs.ReadFile(Migrations, file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.pool.Exec(t.Context(), string(sql)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := request()
+	legacy := []byte(`{"Response":{"Body":"b2xk","Headers":null,"DuplicateRetryAt":"0001-01-01T00:00:00Z"},"Status":null,"RetryAt":"0001-01-01T00:00:00Z"}`)
+	if _, err := db.pool.Exec(t.Context(), `INSERT INTO idempotency_keys(scope,endpoint,key,request_hash,done,payload,expires_at) VALUES($1,$2,$3,$4,true,$5,$6)`, nilScope, r.Endpoint, r.Key, r.Hash[:], legacy, e.now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{"002_result_owner.up.sql", "003_result_owner_index.up.sql"} {
+		sql, err := fs.ReadFile(Migrations, file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.pool.Exec(t.Context(), string(sql)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := runDo(e, db, t.Context(), r, ownedEffect(db, resultOwner))
+	if err != nil || !got.Replayed || got.Response.OwnerID != "" || string(got.Response.Body) != "old" {
+		t.Fatal(got, err)
+	}
+	assertCount(t, db, 0)
 }
