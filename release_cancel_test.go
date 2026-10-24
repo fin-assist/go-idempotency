@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestPostgresConditionalReleaseCancelledWhileWaiting(t *testing.T) {
+func TestIntegrationPostgresConditionalReleaseCancelledWhileWaiting(t *testing.T) {
 	e, db, _ := setup(t)
 	e.lockTimeout = 3 * time.Second
 	token := reserve(t, e, db, request())

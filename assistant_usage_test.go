@@ -159,7 +159,7 @@ func dialUsage(t *testing.T, srv *grpc.Server) *grpc.ClientConn {
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn
 }
-func TestUsageAskQuestionReservationConsentReleaseAndScopes(t *testing.T) {
+func TestIntegrationUsageAskQuestionReservationConsentReleaseAndScopes(t *testing.T) {
 	e, db, _ := setup(t)
 	peer := &consentPeer{db: db, waiting: make(chan struct{})}
 	remote := grpc.NewServer()

@@ -126,7 +126,7 @@ func assertReason(t *testing.T, err error, want string) {
 	}
 }
 
-func TestPostgresReplayConflictScopeExpiryRollback(t *testing.T) {
+func TestIntegrationPostgresReplayConflictScopeExpiryRollback(t *testing.T) {
 	e, db, clock := setup(t)
 	ctx := context.Background()
 	r := request()
@@ -175,7 +175,7 @@ func TestPostgresReplayConflictScopeExpiryRollback(t *testing.T) {
 	}
 	assertCount(t, db, 4)
 }
-func TestPostgresErrorsAndRateLimitedException(t *testing.T) {
+func TestIntegrationPostgresErrorsAndRateLimitedException(t *testing.T) {
 	e, db, clock := setup(t)
 	ctx := context.Background()
 	for i, domain := range []error{finerr.FileTooLarge(), finerr.WrongFormat(), finerr.InvalidToken(), finerr.ConsentRequired(), finerr.NotFound(), finerr.RateLimited(time.Now().Add(time.Hour)), finerr.InternalError()} {
@@ -232,7 +232,7 @@ func TestPostgresErrorsAndRateLimitedException(t *testing.T) {
 	}
 	assertCount(t, db, 4)
 }
-func TestPostgresConcurrentTimeoutAndWaitForCommit(t *testing.T) {
+func TestIntegrationPostgresConcurrentTimeoutAndWaitForCommit(t *testing.T) {
 	for _, timeout := range []bool{true, false} {
 		t.Run(map[bool]string{true: "timeout", false: "commit"}[timeout], func(t *testing.T) {
 			e, db, _ := setup(t)
@@ -302,7 +302,7 @@ func TestPostgresConcurrentTimeoutAndWaitForCommit(t *testing.T) {
 		})
 	}
 }
-func TestPostgresCompletionDeadlineWhileWaitingForKey(t *testing.T) {
+func TestIntegrationPostgresCompletionDeadlineWhileWaitingForKey(t *testing.T) {
 	for _, reserved := range []bool{false, true} {
 		t.Run(map[bool]string{false: "Do", true: "DoReserved"}[reserved], func(t *testing.T) {
 			e, db, _ := setup(t)
@@ -351,7 +351,7 @@ func TestPostgresCompletionDeadlineWhileWaitingForKey(t *testing.T) {
 	}
 }
 
-func TestPostgresCancellationCompletionAndTimeout(t *testing.T) {
+func TestIntegrationPostgresCancellationCompletionAndTimeout(t *testing.T) {
 	e, db, _ := setup(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	result, err := runDo(e, db, ctx, request(), func(ctx context.Context) (Response, error) {
@@ -397,7 +397,7 @@ func finalize(e *Engine, db *serviceDB, token Reservation, fn func(context.Conte
 	err := db.Run(ctx, func(ctx context.Context) error { var err error; result, err = e.DoReserved(ctx, token, fn); return err })
 	return result, err
 }
-func TestPostgresReservationFencingReleaseAndReplay(t *testing.T) {
+func TestIntegrationPostgresReservationFencingReleaseAndReplay(t *testing.T) {
 	e, db, clock := setup(t)
 	r := request()
 	first := reserve(t, e, db, r)
@@ -437,7 +437,7 @@ func TestPostgresReservationFencingReleaseAndReplay(t *testing.T) {
 	}
 	_ = reserve(t, e, db, r)
 }
-func TestPostgresEncryptionCleanupAndLockSetting(t *testing.T) {
+func TestIntegrationPostgresEncryptionCleanupAndLockSetting(t *testing.T) {
 	e, db, clock := setup(t)
 	r := request()
 	r.Endpoint = "/finassist.user.v1.AuthService/RefreshTokens"
@@ -484,7 +484,7 @@ func TestPostgresEncryptionCleanupAndLockSetting(t *testing.T) {
 	assertCount(t, db, 2)
 }
 
-func TestPostgresStorageFailureAndEncryptedCorruptionDoNotRunEffect(t *testing.T) {
+func TestIntegrationPostgresStorageFailureAndEncryptedCorruptionDoNotRunEffect(t *testing.T) {
 	e, db, _ := setup(t)
 	r := request()
 	r.Endpoint = "/finassist.user.v1.AuthService/RefreshTokens"
@@ -506,7 +506,7 @@ func TestPostgresStorageFailureAndEncryptedCorruptionDoNotRunEffect(t *testing.T
 	}
 	assertCount(t, db, 1)
 }
-func TestPostgresCleanupSkipsLockedAndExpiredSavedReservationNeedsNewReserve(t *testing.T) {
+func TestIntegrationPostgresCleanupSkipsLockedAndExpiredSavedReservationNeedsNewReserve(t *testing.T) {
 	e, db, clock := setup(t)
 	r := request()
 	token := reserve(t, e, db, r)
@@ -547,7 +547,7 @@ func TestPostgresCleanupSkipsLockedAndExpiredSavedReservationNeedsNewReserve(t *
 	assertCount(t, db, 1)
 }
 
-func TestPostgresWaitingDuplicateAcquiresAfterOwnerRollback(t *testing.T) {
+func TestIntegrationPostgresWaitingDuplicateAcquiresAfterOwnerRollback(t *testing.T) {
 	e, db, _ := setup(t)
 	e.lockTimeout = 2 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -611,7 +611,7 @@ func TestPostgresWaitingDuplicateAcquiresAfterOwnerRollback(t *testing.T) {
 	}
 	assertCount(t, db, 1)
 }
-func TestUnknownEffectErrorNeverAppearsInResult(t *testing.T) {
+func TestIntegrationUnknownEffectErrorNeverAppearsInResult(t *testing.T) {
 	e := unitEngine(t)
 	r := request()
 	p := e.methods[r.Endpoint]
@@ -621,7 +621,7 @@ func TestUnknownEffectErrorNeverAppearsInResult(t *testing.T) {
 	}
 }
 
-func TestPostgresMetricsCountDecisionsOnceAndHaveBoundedLabels(t *testing.T) {
+func TestIntegrationPostgresMetricsCountDecisionsOnceAndHaveBoundedLabels(t *testing.T) {
 	e, db, _, registry := setupWithRegistry(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -697,7 +697,7 @@ func TestPostgresMetricsCountDecisionsOnceAndHaveBoundedLabels(t *testing.T) {
 	}
 }
 
-func TestPostgresInvalidStoredHashRejectedByCode(t *testing.T) {
+func TestIntegrationPostgresInvalidStoredHashRejectedByCode(t *testing.T) {
 	e, db, _ := setup(t)
 	if _, err := runDo(e, db, context.Background(), request(), effect(db)); err != nil {
 		t.Fatal(err)
