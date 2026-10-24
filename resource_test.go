@@ -12,6 +12,52 @@ import (
 	"github.com/fin-assist/contracts/gen/go/finerr"
 )
 
+func TestResourceInheritanceWithoutDatabase(t *testing.T) {
+	bound := Resource{Type: "verification", ID: "42"}
+	e := unitEngine(t)
+	r := request()
+	r.Endpoint = "/finassist.user.v1.AuthService/StartPhoneVerification"
+	p := Policy{TTL: time.Hour}
+	e.methods[r.Endpoint] = p
+	for _, outcome := range []string{"success", "validation", "busy"} {
+		for _, explicit := range []Resource{{}, bound, {Type: bound.Type, ID: "other"}, {Type: "other", ID: bound.ID}} {
+			input := Response{Resource: explicit, OwnerID: resultOwner, Body: []byte("original"), Headers: map[string][]string{"x-test": {"saved"}}}
+			var domainErr error
+			if outcome == "validation" {
+				domainErr = finerr.WrongFormat()
+			}
+			if outcome == "busy" {
+				input.DuplicateRetryAt = e.now().Add(time.Minute)
+				domainErr = finerr.RateLimited(input.DuplicateRetryAt)
+			}
+			got, err := inheritResource(input, bound)
+			if explicit != (Resource{}) && explicit != bound {
+				if !errors.Is(err, ErrInvalidRequest) || len(got.Body) != 0 || got.Resource != (Resource{}) {
+					t.Fatal("replacement accepted", got, err)
+				}
+				continue
+			}
+			if err != nil || got.Resource != bound || got.OwnerID != input.OwnerID || !bytes.Equal(got.Body, input.Body) || got.Headers["x-test"][0] != "saved" || !got.DuplicateRetryAt.Equal(input.DuplicateRetryAt) || input.Resource != explicit {
+				t.Fatal("inheritance changed response", got, err)
+			}
+			payload, _, err := e.encode(r, p, Result{Response: got, Err: domainErr})
+			if err != nil {
+				t.Fatal(err)
+			}
+			replayed, err := e.decode(r, record{payload: payload, resource: bound, owner: resultOwner})
+			if err != nil || replayed.Response.Resource != bound {
+				t.Fatal(replayed, err)
+			}
+		}
+	}
+	for _, explicit := range []Resource{{}, bound} {
+		got, err := inheritResource(Response{Resource: explicit}, Resource{})
+		if err != nil || got.Resource != explicit {
+			t.Fatal("unbound response changed", got, err)
+		}
+	}
+}
+
 func TestResourceBoundsAndCodecBinding(t *testing.T) {
 	good := Resource{Type: "phone_verification", ID: "42"}
 	for _, r := range []Resource{{}, good, {Type: "a" + strings.Repeat("_", 63), ID: strings.Repeat("A", 256)}, {Type: "a.1-x", ID: "UUID:0000-1234_a.b"}} {

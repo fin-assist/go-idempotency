@@ -8,6 +8,17 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+func inheritResource(response Response, bound Resource) (Response, error) {
+	if bound == (Resource{}) {
+		return response, nil
+	}
+	if response.Resource != (Resource{}) && response.Resource != bound {
+		return Response{}, ErrInvalidRequest
+	}
+	response.Resource = bound
+	return response, nil
+}
+
 func validResource(r Resource) bool {
 	if r == (Resource{}) {
 		return true

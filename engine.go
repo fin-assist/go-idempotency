@@ -286,11 +286,9 @@ func (e *Engine) ReleaseIfCurrent(ctx context.Context, token Reservation) (bool,
 
 func (e *Engine) perform(ctx context.Context, tx pgx.Tx, r Request, p Policy, reservation string, bound Resource, effect func(context.Context) (Response, error)) (Result, error) {
 	response, domainErr := effect(ctx)
-	if bound != (Resource{}) {
-		if response.Resource != (Resource{}) && response.Resource != bound {
-			return Result{}, ErrInvalidRequest
-		}
-		response.Resource = bound
+	response, err := inheritResource(response, bound)
+	if err != nil {
+		return Result{}, err
 	}
 	response.OwnerID = strings.ToLower(response.OwnerID)
 	if domainErr != nil {

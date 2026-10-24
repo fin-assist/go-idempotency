@@ -57,7 +57,7 @@ OwnerID/scope/TTL; права, Guard и scoped purge — обязанность 
 | Инвариант | Код | Проверки |
 | --- | --- | --- |
 | Формат, границы, полная пара, связь столбцов с payload | validResource, readRecord, encode/decode | TestResourceBoundsAndCodecBinding, TestPostgresResourceCorruptionAndUpgrade |
-| Привязка принадлежит действующему резерву, неизменна, срок проверен после блокировки | BindResource, DoReserved/perform | TestPostgresResourceReservationInheritanceAndFencing, TestPostgresBindResourceCancellationAndExpiryAfterWait |
+| Привязка принадлежит действующему резерву, неизменна, срок проверен после блокировки | BindResource, inheritResource, DoReserved/perform | TestResourceInheritanceWithoutDatabase, TestPostgresResourceReservationInheritanceAndFencing, TestPostgresBindResourceCancellationAndExpiryAfterWait |
 | Связь атомарна с успехом/разрешённым отказом, rollback и scoped purge не затрагивают чужие ресурсы | perform, SQL сервиса в README | TestPostgresResourceAtomicBindingReplayAndPurge, TestPostgresResourceStoredErrorsAndRollback, TestUsageResourceLinksSuccessBusyReplayAndScopedPurge |
 
 Миграции добавляются к существующей схеме без правок выпущенных файлов. Nullable-поля
