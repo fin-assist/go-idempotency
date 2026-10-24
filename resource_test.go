@@ -12,7 +12,7 @@ import (
 	"github.com/fin-assist/contracts/gen/go/finerr"
 )
 
-func TestResourceStoredColumnsWithoutDatabase(t *testing.T) {
+func TestUnitResourceStoredColumnsWithoutDatabase(t *testing.T) {
 	empty, kind, id, invalid := "", "verification", "42", "has spaces"
 	for _, tc := range []struct {
 		name     string
@@ -43,7 +43,7 @@ func TestResourceStoredColumnsWithoutDatabase(t *testing.T) {
 	}
 }
 
-func TestResourceBindingAdmissionWithoutDatabase(t *testing.T) {
+func TestUnitResourceBindingAdmissionWithoutDatabase(t *testing.T) {
 	now := time.Date(2026, 10, 24, 5, 0, 0, 0, time.UTC)
 	token := Reservation{request: request(), id: "own-reservation"}
 	ref := Resource{Type: "verification", ID: "42"}
@@ -88,7 +88,7 @@ func TestResourceBindingAdmissionWithoutDatabase(t *testing.T) {
 	}
 }
 
-func TestResourceInheritanceWithoutDatabase(t *testing.T) {
+func TestUnitResourceInheritanceWithoutDatabase(t *testing.T) {
 	bound := Resource{Type: "verification", ID: "42"}
 	e := unitEngine(t)
 	r := request()
@@ -134,7 +134,7 @@ func TestResourceInheritanceWithoutDatabase(t *testing.T) {
 	}
 }
 
-func TestResourceBoundsAndCodecBinding(t *testing.T) {
+func TestUnitResourceBoundsAndCodecBinding(t *testing.T) {
 	good := Resource{Type: "phone_verification", ID: "42"}
 	for _, r := range []Resource{{}, good, {Type: "a" + strings.Repeat("_", 63), ID: strings.Repeat("A", 256)}, {Type: "a.1-x", ID: "UUID:0000-1234_a.b"}} {
 		if !validResource(r) {
@@ -196,7 +196,7 @@ func TestResourceBoundsAndCodecBinding(t *testing.T) {
 	}
 }
 
-func TestPostgresResourceAtomicBindingReplayAndPurge(t *testing.T) {
+func TestIntegrationPostgresResourceAtomicBindingReplayAndPurge(t *testing.T) {
 	e, db, clock := setup(t)
 	r := request()
 	ref := Resource{Type: "upload", ID: "42"}
@@ -263,7 +263,7 @@ func TestPostgresResourceAtomicBindingReplayAndPurge(t *testing.T) {
 	}
 }
 
-func TestPostgresResourceReservationInheritanceAndFencing(t *testing.T) {
+func TestIntegrationPostgresResourceReservationInheritanceAndFencing(t *testing.T) {
 	e, db, clock := setup(t)
 	r := request()
 	ref := Resource{Type: "phone_verification", ID: "12"}
@@ -325,7 +325,7 @@ func TestPostgresResourceReservationInheritanceAndFencing(t *testing.T) {
 	assertCount(t, db, 1)
 }
 
-func TestPostgresResourceStoredErrorsAndRollback(t *testing.T) {
+func TestIntegrationPostgresResourceStoredErrorsAndRollback(t *testing.T) {
 	for _, outcome := range []string{"success", "validation", "busy", "noncacheable", "invalid", "storage"} {
 		t.Run(outcome, func(t *testing.T) {
 			e, db, clock := setup(t)
@@ -389,7 +389,7 @@ func TestPostgresResourceStoredErrorsAndRollback(t *testing.T) {
 	}
 }
 
-func TestPostgresResourceCorruptionAndUpgrade(t *testing.T) {
+func TestIntegrationPostgresResourceCorruptionAndUpgrade(t *testing.T) {
 	e, db, _ := setup(t)
 	for _, file := range []string{"005_resource_index.down.sql", "004_resource.down.sql"} {
 		sql, err := fs.ReadFile(Migrations, file)
@@ -429,7 +429,7 @@ func TestPostgresResourceCorruptionAndUpgrade(t *testing.T) {
 	assertCount(t, db, 0)
 }
 
-func TestPostgresBindResourceCancellationAndExpiryAfterWait(t *testing.T) {
+func TestIntegrationPostgresBindResourceCancellationAndExpiryAfterWait(t *testing.T) {
 	for _, mode := range []string{"cancel", "expire", "purge", "lock timeout"} {
 		t.Run(mode, func(t *testing.T) {
 			e, db, clock := setup(t)
@@ -486,7 +486,7 @@ func TestPostgresBindResourceCancellationAndExpiryAfterWait(t *testing.T) {
 	}
 }
 
-func TestPostgresBindResourceRollbackAndStorageFailures(t *testing.T) {
+func TestIntegrationPostgresBindResourceRollbackAndStorageFailures(t *testing.T) {
 	e, db, _ := setup(t)
 	token := reserve(t, e, db, request())
 	ref := Resource{Type: "upload", ID: "1"}

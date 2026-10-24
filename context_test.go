@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestPreflightCancellationSources(t *testing.T) {
+func TestUnitPreflightCancellationSources(t *testing.T) {
 	for _, source := range []string{"request", "completion", "cleanup", "already cancelled"} {
 		t.Run(source, func(t *testing.T) {
 			original, stopRequest := context.WithCancel(context.Background())
@@ -49,7 +49,7 @@ func TestPreflightCancellationSources(t *testing.T) {
 	}
 }
 
-func TestPreflightUsesEarlierDeadline(t *testing.T) {
+func TestUnitPreflightUsesEarlierDeadline(t *testing.T) {
 	for _, requestFirst := range []bool{false, true} {
 		t.Run(map[bool]string{false: "completion", true: "request"}[requestFirst], func(t *testing.T) {
 			earlier := time.Now().Add(-time.Second)

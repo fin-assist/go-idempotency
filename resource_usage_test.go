@@ -82,7 +82,7 @@ func (s *resourceUsageServer) StartPhoneVerification(ctx context.Context, in *us
 	return out, nil
 }
 
-func TestUsageResourceLinksSuccessBusyReplayAndScopedPurge(t *testing.T) {
+func TestIntegrationUsageResourceLinksSuccessBusyReplayAndScopedPurge(t *testing.T) {
 	e, db, _ := setup(t)
 	lis := bufconn.Listen(1 << 20)
 	server := grpc.NewServer(grpc.UnaryInterceptor(e.UnaryInterceptor(func(context.Context) (string, error) { return "", nil })))

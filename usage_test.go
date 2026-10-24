@@ -80,7 +80,7 @@ func (s *usageServer) StartPhoneVerification(ctx context.Context, in *userv1.Sta
 	out.ExpiresIn = &remaining
 	return out, nil
 }
-func TestUsageGeneratedClientAndContractErrors(t *testing.T) {
+func TestIntegrationUsageGeneratedClientAndContractErrors(t *testing.T) {
 	e, db, clock := setup(t)
 	listener := bufconn.Listen(1 << 20)
 	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(e.UnaryInterceptor(func(context.Context) (string, error) { return "", nil })))
@@ -136,7 +136,7 @@ func TestUsageGeneratedClientAndContractErrors(t *testing.T) {
 	assertCount(t, db, 2)
 }
 
-func TestUsageBusyPhoneRateLimitedRebuildsRetryInfo(t *testing.T) {
+func TestIntegrationUsageBusyPhoneRateLimitedRebuildsRetryInfo(t *testing.T) {
 	e, db, clock := setup(t)
 	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(e.UnaryInterceptor(func(context.Context) (string, error) { return "", nil })))
 	userv1.RegisterAuthServiceServer(srv, &usageServer{e: e, db: db, clock: clock})
@@ -171,7 +171,7 @@ func TestUsageBusyPhoneRateLimitedRebuildsRetryInfo(t *testing.T) {
 	assertCount(t, db, 1)
 }
 
-func TestUsageWrappedContractErrorSanitized(t *testing.T) {
+func TestIntegrationUsageWrappedContractErrorSanitized(t *testing.T) {
 	e, db, clock := setup(t)
 	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(e.UnaryInterceptor(func(context.Context) (string, error) { return "", nil })))
 	userv1.RegisterAuthServiceServer(srv, &usageServer{e: e, db: db, clock: clock})
@@ -189,7 +189,7 @@ func TestUsageWrappedContractErrorSanitized(t *testing.T) {
 	assertCount(t, db, 1)
 }
 
-func TestServiceTransactionErrorMappingDropsRollbackText(t *testing.T) {
+func TestUnitServiceTransactionErrorMappingDropsRollbackText(t *testing.T) {
 	original := finerr.RequestInProgress(time.Second)
 	for _, err := range []error{
 		fmt.Errorf("private transaction details: %w", original),

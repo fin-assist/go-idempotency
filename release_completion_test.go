@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestPostgresCompletionRacesConditionalCompensation(t *testing.T) {
+func TestIntegrationPostgresCompletionRacesConditionalCompensation(t *testing.T) {
 	for _, rollback := range []bool{false, true} {
 		t.Run(map[bool]string{false: "completion commits", true: "completion rolls back"}[rollback], func(t *testing.T) {
 			e, db, _ := setup(t)
