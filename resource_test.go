@@ -12,6 +12,51 @@ import (
 	"github.com/fin-assist/contracts/gen/go/finerr"
 )
 
+func TestResourceBindingAdmissionWithoutDatabase(t *testing.T) {
+	now := time.Date(2026, 10, 24, 5, 0, 0, 0, time.UTC)
+	token := Reservation{request: request(), id: "own-reservation"}
+	ref := Resource{Type: "verification", ID: "42"}
+	base := record{hash: token.request.Hash, reservation: token.id, expires: now.Add(reservationTTL)}
+	for _, tc := range []struct {
+		name   string
+		change func(*record)
+		want   string
+	}{
+		{"new binding", func(*record) {}, "ok"},
+		{"same binding", func(r *record) { r.resource = ref }, "ok"},
+		{"foreign hash", func(r *record) { r.hash[0] ^= 1 }, "progress"},
+		{"foreign reservation", func(r *record) { r.reservation = "other" }, "progress"},
+		{"done", func(r *record) { r.done = true }, "progress"},
+		{"at expiry", func(r *record) { r.expires = now }, "progress"},
+		{"past expiry", func(r *record) { r.expires = now.Add(-time.Nanosecond) }, "progress"},
+		{"before expiry", func(r *record) { r.expires = now.Add(time.Nanosecond) }, "ok"},
+		{"different type", func(r *record) { r.resource = Resource{Type: "other", ID: ref.ID} }, "invalid"},
+		{"different id", func(r *record) { r.resource = Resource{Type: ref.Type, ID: "43"} }, "invalid"},
+		{"expired different resource", func(r *record) { r.resource = Resource{Type: "other", ID: "43"}; r.expires = now }, "progress"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row := base
+			tc.change(&row)
+			err := checkResourceBinding(row, token, ref, now)
+			switch tc.want {
+			case "ok":
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "invalid":
+				if !errors.Is(err, ErrInvalidRequest) {
+					t.Fatal(err)
+				}
+			case "progress":
+				assertReason(t, err, "REQUEST_IN_PROGRESS")
+			}
+		})
+	}
+	if err := checkResourceBinding(base, token, ref, base.expires); err == nil {
+		t.Fatal("advanced clock allowed expired binding")
+	}
+}
+
 func TestResourceInheritanceWithoutDatabase(t *testing.T) {
 	bound := Resource{Type: "verification", ID: "42"}
 	e := unitEngine(t)

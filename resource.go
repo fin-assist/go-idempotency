@@ -5,8 +5,21 @@ import (
 	"errors"
 	"time"
 
+	"github.com/fin-assist/contracts/gen/go/finerr"
 	"github.com/jackc/pgx/v5"
 )
+
+// The row was fetched by the complete PK under lock; evaluate the remaining
+// fence with a timestamp taken after that lock, never before its wait.
+func checkResourceBinding(row record, token Reservation, resource Resource, now time.Time) error {
+	if row.done || row.hash != token.request.Hash || row.reservation != token.id || !row.expires.After(now) {
+		return finerr.RequestInProgress(time.Second)
+	}
+	if row.resource != (Resource{}) && row.resource != resource {
+		return ErrInvalidRequest
+	}
+	return nil
+}
 
 func inheritResource(response Response, bound Resource) (Response, error) {
 	if bound == (Resource{}) {
@@ -74,11 +87,9 @@ func (e *Engine) BindResource(ctx context.Context, token Reservation, resource R
 		return err
 	}
 	// Check the clock after acquiring the key, as with conditional compensation.
-	if row.done || row.hash != r.Hash || row.reservation != token.id || !row.expires.After(e.now()) {
-		return e.progress(r, time.Second)
-	}
-	if row.resource != (Resource{}) && row.resource != resource {
-		return ErrInvalidRequest
+	if err = checkResourceBinding(row, token, resource, e.now()); err != nil {
+		e.observeError(r, err)
+		return err
 	}
 	tag, err := tx.Exec(ctx, `UPDATE idempotency_keys SET resource_type=$7,resource_id=$8 WHERE scope=$1 AND endpoint=$2 AND key=$3 AND NOT done AND request_hash=$4 AND reservation_id=$5 AND expires_at>$6`, r.Scope, r.Endpoint, r.Key, r.Hash[:], token.id, e.now(), resource.Type, resource.ID)
 	if err != nil {
