@@ -9,7 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-func TestReleaseIfCurrentPreconditions(t *testing.T) {
+func TestUnitReleaseIfCurrentPreconditions(t *testing.T) {
 	e, err := New(noTx{}, Options{Methods: map[string]Policy{testMethod: {}}, Clock: time.Now, Registerer: prometheus.NewRegistry()})
 	if err != nil {
 		t.Fatal(err)
@@ -27,7 +27,7 @@ func TestReleaseIfCurrentPreconditions(t *testing.T) {
 	}
 }
 
-func TestPostgresConditionalReleaseAtomicCompensation(t *testing.T) {
+func TestIntegrationPostgresConditionalReleaseAtomicCompensation(t *testing.T) {
 	e, db, _ := setup(t)
 	r := request()
 	token := reserve(t, e, db, r)
@@ -74,7 +74,7 @@ func TestPostgresConditionalReleaseAtomicCompensation(t *testing.T) {
 	_ = reserve(t, e, db, r) // No error response was cached by compensation.
 }
 
-func TestPostgresConditionalReleaseFencesOwnership(t *testing.T) {
+func TestIntegrationPostgresConditionalReleaseFencesOwnership(t *testing.T) {
 	e, db, clock := setup(t)
 	r := request()
 	first := reserve(t, e, db, r)
@@ -122,7 +122,7 @@ func TestPostgresConditionalReleaseFencesOwnership(t *testing.T) {
 	assertCount(t, db, 1)
 }
 
-func TestPostgresConditionalReleaseWaitersCommitAndRollback(t *testing.T) {
+func TestIntegrationPostgresConditionalReleaseWaitersCommitAndRollback(t *testing.T) {
 	for _, rollback := range []bool{false, true} {
 		t.Run(map[bool]string{false: "commit", true: "rollback"}[rollback], func(t *testing.T) {
 			e, db, _ := setup(t)
@@ -194,7 +194,7 @@ func waitForReleaseLock(t *testing.T, ctx context.Context, db *serviceDB) {
 	}
 }
 
-func TestPostgresConditionalReleaseChecksExpiryAfterLock(t *testing.T) {
+func TestIntegrationPostgresConditionalReleaseChecksExpiryAfterLock(t *testing.T) {
 	e, db, clock := setup(t)
 	e.lockTimeout = time.Second
 	token := reserve(t, e, db, request())
@@ -234,7 +234,7 @@ func TestPostgresConditionalReleaseChecksExpiryAfterLock(t *testing.T) {
 	_ = reserve(t, e, db, request())
 }
 
-func TestPostgresConditionalReleaseErrors(t *testing.T) {
+func TestIntegrationPostgresConditionalReleaseErrors(t *testing.T) {
 	e, db, _ := setup(t)
 	token := reserve(t, e, db, request())
 	ctx, cancel := context.WithCancel(t.Context())

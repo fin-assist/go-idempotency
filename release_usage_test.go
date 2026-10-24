@@ -85,7 +85,7 @@ func (s *releaseUsageServer) StartPhoneVerification(ctx context.Context, in *use
 	return &userv1.StartPhoneVerificationResponse{VerificationToken: "test-secret", CallbackNumber: "+74951234567"}, nil
 }
 
-func TestUsageConditionalReleaseAllowsSameKeyRetryAfterCompensation(t *testing.T) {
+func TestIntegrationUsageConditionalReleaseAllowsSameKeyRetryAfterCompensation(t *testing.T) {
 	e, db, _ := setup(t)
 	handler := &releaseUsageServer{e: e, db: db}
 	handler.reject.Store(true)
