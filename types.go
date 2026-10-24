@@ -69,6 +69,10 @@ type Request struct {
 // The service chooses its format (for example protobuf for gRPC, JSON for HTTP).
 // Errors are returned separately by the effect.
 type Response struct {
+	// Resource optionally links the result to a verified internal resource. It
+	// does not authorize access or change scope, owner or TTL. A DoReserved result
+	// inherits a previously bound resource; an explicit different one is invalid.
+	Resource Resource
 	// OwnerID optionally associates the stored result with a user discovered by
 	// the effect, for example Register or RefreshTokens in the shared no-user
 	// scope. Use only a UUID verified by business logic, never client identity.
@@ -82,6 +86,16 @@ type Response struct {
 	// DuplicateRetryAt explicitly opts into the busy-phone-number RATE_LIMITED
 	// exception for StartPhoneVerification only. Zero keeps ordinary 429 rollback.
 	DuplicateRetryAt time.Time
+}
+
+// Resource identifies one service-owned object for scoped lookup or purge. Type
+// is a stable code (1-64 lowercase ASCII letters, digits, dot, dash or underscore,
+// starting with a letter); ID is an opaque internal identifier (1-256 ASCII
+// letters/digits or ._:-). Never use personal data, tokens or client identity.
+// The zero value means no link; a partially populated value is invalid.
+type Resource struct {
+	Type string
+	ID   string
 }
 
 // Result is usable only after the service transaction commits. Err is a validated

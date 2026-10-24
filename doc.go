@@ -10,6 +10,9 @@
 //
 // Response.OwnerID binds a no-user result to an account discovered by the effect.
 // Before returning a replay, the service checks its durable tombstone for that owner.
+// Response.Resource provides optional scoped resource lookup/purge metadata;
+// BindResource links a fenced reservation before external work. The service
+// validates object access and serializes purge with effects and replay.
 //
 // See README for migration wiring, interceptor order, reservation release, refresh
 // encryption, cleanup and special phone-verification replay rules.

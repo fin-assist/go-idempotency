@@ -24,7 +24,7 @@ type stored struct {
 func (e *Engine) encode(r Request, p Policy, result Result) ([]byte, time.Time, error) {
 	expires := e.now().Add(p.TTL)
 	s := stored{Response: result.Response}
-	if !validResponse(result.Response) || !validOwner(r, result.Response.OwnerID) {
+	if !validResponse(result.Response) || !validOwner(r, result.Response.OwnerID) || !validResource(result.Response.Resource) {
 		return nil, time.Time{}, ErrInvalidRequest
 	}
 	if result.Err != nil {
@@ -87,7 +87,7 @@ func (e *Engine) decode(r Request, row record) (Result, error) {
 		}
 	}
 	var s stored
-	if err := json.Unmarshal(b, &s); err != nil || !validResponse(s.Response) || !validOwner(r, s.Response.OwnerID) || s.Response.OwnerID != row.owner {
+	if err := json.Unmarshal(b, &s); err != nil || !validResponse(s.Response) || !validOwner(r, s.Response.OwnerID) || s.Response.OwnerID != row.owner || !validResource(s.Response.Resource) || s.Response.Resource != row.resource {
 		return Result{}, ErrStorage
 	}
 	result := Result{Response: s.Response}

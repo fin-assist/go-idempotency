@@ -40,6 +40,30 @@ FK на таблицы сервиса нет: связь должна переж
 
 ## Удаление записей
 
+FIN-230: миграции 004/005 добавляют nullable resource_type/resource_id и индекс
+CONCURRENTLY (scope,resource_type,resource_id) WHERE resource_type IS NOT NULL.
+Оба NULL означают отсутствие связи. Неполная/пустая или недопустимая пара из БД —
+ErrStorage в readRecord; из Response — ErrInvalidRequest. Type ограничен 64, ID —
+256 ASCII-байтами и безопасным алфавитом (resource.go). Валидация в Go, без CHECK.
+
+BindResource принимает только собственный незавершённый неистёкший резерв, проверяет
+hash/полный PK/reservation_id и срок после блокировки, в той же транзакции, что ресурс.
+Связь переносится в DoReserved; попытка заменить её откатывает эффект. perform пишет
+метаданные и payload одним UPDATE; decode сравнивает обе копии, для Encrypt защищённые
+AES-GCM. Старый payload без Resource совместим с NULL-колонками. Ресурс не меняет
+OwnerID/scope/TTL; права, Guard и scoped purge — обязанность сервиса. FK на таблицы
+сервиса нет. Данные попытки user и его rate-limit receipts сюда не переносятся.
+
+| Инвариант | Код | Проверки |
+| --- | --- | --- |
+| Формат, границы, полная пара, связь столбцов с payload | validResource, storedResource, readRecord, encode/decode | TestResourceStoredColumnsWithoutDatabase, TestResourceBoundsAndCodecBinding, TestPostgresResourceCorruptionAndUpgrade |
+| Привязка принадлежит действующему резерву, неизменна, срок проверен после блокировки | BindResource, checkResourceBinding, inheritResource, DoReserved/perform | TestResourceBindingAdmissionWithoutDatabase, TestResourceInheritanceWithoutDatabase, TestPostgresResourceReservationInheritanceAndFencing, TestPostgresBindResourceCancellationAndExpiryAfterWait |
+| Связь атомарна с успехом/разрешённым отказом, rollback и scoped purge не затрагивают чужие ресурсы | perform, SQL сервиса в README | TestPostgresResourceAtomicBindingReplayAndPurge, TestPostgresResourceStoredErrorsAndRollback, TestUsageResourceLinksSuccessBusyReplayAndScopedPurge |
+
+Миграции добавляются к существующей схеме без правок выпущенных файлов. Nullable-поля
+совместимы со старым кодом; новый код требует применённых 004/005. После прерывания
+CONCURRENTLY-индекса действуют те же правила проверки/восстановления, что у owner-индекса.
+
 `ReleaseIfCurrent` (FIN-229) под блокировкой ключа проверяет scope/endpoint/key,
 request_hash, reservation_id, `done=false` и `expires_at > Clock()` после ожидания.
 Только факт удаления разрешает сервису компенсирующий эффект в той же транзакции;
