@@ -128,7 +128,7 @@ func (e *Engine) Do(ctx context.Context, r Request, effect func(context.Context)
 	if err = preflight.Err(); err != nil {
 		return Result{}, err
 	}
-	return e.perform(ctx, tx, r, p, "", effect)
+	return e.perform(ctx, tx, r, p, "", Resource{}, effect)
 }
 
 // Reserve creates a 15-second fencing reservation in a short, service-owned
@@ -210,7 +210,7 @@ func (e *Engine) DoReserved(ctx context.Context, token Reservation, effect func(
 	if err = preflight.Err(); err != nil {
 		return Result{}, err
 	}
-	return e.perform(ctx, tx, r, p, token.id, effect)
+	return e.perform(ctx, tx, r, p, token.id, row.resource, effect)
 }
 
 // Release removes only the caller's unfinished reservation. Call it in a NEW,
@@ -284,8 +284,14 @@ func (e *Engine) ReleaseIfCurrent(ctx context.Context, token Reservation) (bool,
 	return released, nil
 }
 
-func (e *Engine) perform(ctx context.Context, tx pgx.Tx, r Request, p Policy, reservation string, effect func(context.Context) (Response, error)) (Result, error) {
+func (e *Engine) perform(ctx context.Context, tx pgx.Tx, r Request, p Policy, reservation string, bound Resource, effect func(context.Context) (Response, error)) (Result, error) {
 	response, domainErr := effect(ctx)
+	if bound != (Resource{}) {
+		if response.Resource != (Resource{}) && response.Resource != bound {
+			return Result{}, ErrInvalidRequest
+		}
+		response.Resource = bound
+	}
 	response.OwnerID = strings.ToLower(response.OwnerID)
 	if domainErr != nil {
 		var err error
@@ -299,7 +305,7 @@ func (e *Engine) perform(ctx context.Context, tx pgx.Tx, r Request, p Policy, re
 	if err != nil {
 		return result, err
 	}
-	tag, err := tx.Exec(ctx, `UPDATE idempotency_keys SET done=true, payload=$4, encrypted=$5, expires_at=$6, reservation_id='', owner_id=NULLIF($9,'')::uuid WHERE scope=$1 AND endpoint=$2 AND key=$3 AND ($7='' OR (reservation_id=$7 AND expires_at>$8))`, r.Scope, r.Endpoint, r.Key, encoded, p.Encrypt, expires, reservation, e.now(), response.OwnerID)
+	tag, err := tx.Exec(ctx, `UPDATE idempotency_keys SET done=true, payload=$4, encrypted=$5, expires_at=$6, reservation_id='', owner_id=NULLIF($9,'')::uuid,resource_type=NULLIF($10,''),resource_id=NULLIF($11,'') WHERE scope=$1 AND endpoint=$2 AND key=$3 AND ($7='' OR (reservation_id=$7 AND expires_at>$8))`, r.Scope, r.Endpoint, r.Key, encoded, p.Encrypt, expires, reservation, e.now(), response.OwnerID, response.Resource.Type, response.Resource.ID)
 	if err != nil {
 		return Result{}, storageError(err)
 	}

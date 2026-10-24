@@ -615,7 +615,7 @@ func TestUnknownEffectErrorNeverAppearsInResult(t *testing.T) {
 	e := unitEngine(t)
 	r := request()
 	p := e.methods[r.Endpoint]
-	result, err := e.perform(context.Background(), unavailableTx{}, r, p, "", func(context.Context) (Response, error) { return Response{}, errors.New("private SQL and credentials") })
+	result, err := e.perform(context.Background(), unavailableTx{}, r, p, "", Resource{}, func(context.Context) (Response, error) { return Response{}, errors.New("private SQL and credentials") })
 	if !errors.Is(err, ErrStorage) || result.Err != nil {
 		t.Fatal(result, err)
 	}

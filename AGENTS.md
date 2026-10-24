@@ -121,6 +121,7 @@ The same priorities and rules as the services (`AGENTS.md` of `fin-assist/go-ser
 - AskQuestion: commit Reserve, check consent outside the transaction, then DoReserved; rollback and Release in a new bounded transaction on failure. Reservation TTL is 15 seconds, checked again at completion.
 - FIN-229: ReleaseIfCurrent returns whether the caller removed its own unfinished, unexpired reservation. Only true authorizes service compensation in that same primary transaction; rollback restores both. False, including a zero token, authorizes no compensation. Check expiry after the row lock. Existing Release remains housekeeping, with no ownership signal.
 - FIN-226: Response.OwnerID optionally binds a result to the account discovered by the effect without changing scope. It is stored atomically, returned on fresh/replayed results and checked against the payload. A no-user auth replay must reject a missing owner and run the service tombstone guard before returning secrets. Purge matches scope OR owner_id; never purge the whole nil scope.
+- FIN-230: Response.Resource optionally binds a saved outcome to an internal Type/ID; BindResource attaches it to the caller's live fenced reservation before external work, atomically with the resource claim. DoReserved inherits the binding and rejects replacement. Metadata is compared to the payload on replay; no scope/owner/TTL or authorization semantics change. Apply migrations004/005 before the new code. The service owns resource/user guards, NOWAIT locks and scoped purge SQL; a key query cannot protect against uncommitted/new bindings without the service guard. No business workflow, PII or resource FK in this library.
 - RefreshTokens requires encrypted 60-second storage; Register and StartPhoneVerification also require encryption of their token-bearing responses. Only the busy-phone-number outcome of StartPhoneVerification opts into saved RATE_LIMITED with DuplicateRetryAt.
 - README contains wiring, replay-time expires_in handling, cleanup, purge and endpoint checklist; usage_test.go exercises a generated client against real gRPC/PostgreSQL.
 
@@ -203,8 +204,10 @@ Test changes to the report with `python3 -m unittest discover -s scripts -p 'tes
 - Waiting for the review: react to the PR's GitHub events when the session receives them; otherwise check 3 minutes
   after the request, then every 2 minutes. A reviewer has answered when it posted its review or summary for the
   latest commit; for Codex (`chatgpt-codex-connector[bot]`) «Didn't find any major issues» or a 👍 without a comment
-  also counts. A reviewer silent for 15 minutes after the last request: say so in the PR and to the owner, stop
-  waiting for it. The cycle ends when both answered the latest request and no thread is open.
+  also counts only for the current commit/latest request. If Codex has no result after 5 minutes, request it again
+  on the current SHA and repeat every 5 minutes until a result, explicit integration error or owner stop. Running
+  and the eyes reaction do not count; no 15-minute cutoff applies to Codex. Other reviewers have a 15-minute cutoff.
+  Follow the owner's current choice of reviewers. The cycle ends when requested reviewers answered and no thread is open.
 - Address findings in follow-up commits on the same branch, reply in the thread and resolve it, then request a
   review again. Agents never merge a PR; the owner does.
 

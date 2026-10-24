@@ -9,6 +9,7 @@ import (
 )
 
 type record struct {
+	resource    Resource
 	owner       string
 	hash        [32]byte
 	done        bool
@@ -21,12 +22,22 @@ type record struct {
 func readRecord(ctx context.Context, tx pgx.Tx, r Request) (record, error) {
 	var row record
 	var hash []byte
-	err := tx.QueryRow(ctx, `SELECT request_hash,done,payload,encrypted,expires_at,reservation_id,COALESCE(owner_id::text,'') FROM idempotency_keys WHERE scope=$1 AND endpoint=$2 AND key=$3 FOR UPDATE`, r.Scope, r.Endpoint, r.Key).Scan(&hash, &row.done, &row.payload, &row.encrypted, &row.expires, &row.reservation, &row.owner)
+	var resourceType, resourceID *string
+	err := tx.QueryRow(ctx, `SELECT request_hash,done,payload,encrypted,expires_at,reservation_id,COALESCE(owner_id::text,''),resource_type,resource_id FROM idempotency_keys WHERE scope=$1 AND endpoint=$2 AND key=$3 FOR UPDATE`, r.Scope, r.Endpoint, r.Key).Scan(&hash, &row.done, &row.payload, &row.encrypted, &row.expires, &row.reservation, &row.owner, &resourceType, &resourceID)
 	if err != nil {
 		return row, err
 	}
 	if len(hash) != 32 {
 		return row, ErrStorage
+	}
+	if resourceType != nil || resourceID != nil {
+		if resourceType == nil || resourceID == nil {
+			return row, ErrStorage
+		}
+		row.resource = Resource{Type: *resourceType, ID: *resourceID}
+		if row.resource == (Resource{}) || !validResource(row.resource) {
+			return row, ErrStorage
+		}
 	}
 	copy(row.hash[:], hash)
 	return row, nil

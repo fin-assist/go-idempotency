@@ -133,3 +133,24 @@ func ExampleResponse() {
 	fmt.Println(response.OwnerID)
 	// Output: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
 }
+
+func ExampleEngine_BindResource() {
+	claim := func(ctx context.Context, db serviceTransactions, e *idem.Engine, request idem.Request, create func(context.Context) (string, error)) (idem.Reservation, idem.Result, error) {
+		var token idem.Reservation
+		var result idem.Result
+		err := db.Run(ctx, func(ctx context.Context) error {
+			var err error
+			token, result, err = e.Reserve(ctx, request)
+			if err != nil || result.Replayed {
+				return err
+			}
+			id, err := create(ctx) // Local claim only; no network inside this transaction.
+			if err != nil {
+				return err
+			}
+			return e.BindResource(ctx, token, idem.Resource{Type: "upload", ID: id})
+		})
+		return token, result, err // External work only after successful commit.
+	}
+	_ = claim
+}
