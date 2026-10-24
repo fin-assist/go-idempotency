@@ -183,6 +183,10 @@ Test changes to the report with `python3 -m unittest discover -s scripts -p 'tes
   the module.
 - Releases follow `docs/releasing.md`: an agent may open the release PR on the owner's command; the owner merges it
   and pushes the tag. An agent never pushes, moves or deletes a tag.
+- FIN-227: historical releases through v0.4.0 were tagged before their CHANGELOG sections. Recovery is a separate
+  release PR, not a moved tag or a rerun of the old workflow: it reads CHANGELOG from the immutable tag commit.
+  Follow `docs/releasing.md` for the v0.4.1 recovery and distinguish a published module/GitHub Release from a
+  successful Release workflow.
 - After the PR is open and all planned changes are pushed, request a review with one PR comment in Russian addressed
   to both reviewers; it starts with `@codex @claude`:
 
