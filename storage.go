@@ -30,14 +30,9 @@ func readRecord(ctx context.Context, tx pgx.Tx, r Request) (record, error) {
 	if len(hash) != 32 {
 		return row, ErrStorage
 	}
-	if resourceType != nil || resourceID != nil {
-		if resourceType == nil || resourceID == nil {
-			return row, ErrStorage
-		}
-		row.resource = Resource{Type: *resourceType, ID: *resourceID}
-		if row.resource == (Resource{}) || !validResource(row.resource) {
-			return row, ErrStorage
-		}
+	row.resource, err = storedResource(resourceType, resourceID)
+	if err != nil {
+		return row, err
 	}
 	copy(row.hash[:], hash)
 	return row, nil

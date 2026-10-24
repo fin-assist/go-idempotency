@@ -9,6 +9,20 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+func storedResource(kind, id *string) (Resource, error) {
+	if kind == nil && id == nil {
+		return Resource{}, nil
+	}
+	if kind == nil || id == nil {
+		return Resource{}, ErrStorage
+	}
+	r := Resource{Type: *kind, ID: *id}
+	if r == (Resource{}) || !validResource(r) {
+		return Resource{}, ErrStorage
+	}
+	return r, nil
+}
+
 // The row was fetched by the complete PK under lock; evaluate the remaining
 // fence with a timestamp taken after that lock, never before its wait.
 func checkResourceBinding(row record, token Reservation, resource Resource, now time.Time) error {

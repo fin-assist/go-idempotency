@@ -12,6 +12,37 @@ import (
 	"github.com/fin-assist/contracts/gen/go/finerr"
 )
 
+func TestResourceStoredColumnsWithoutDatabase(t *testing.T) {
+	empty, kind, id, invalid := "", "verification", "42", "has spaces"
+	for _, tc := range []struct {
+		name     string
+		kind, id *string
+		want     Resource
+		bad      bool
+	}{
+		{name: "absent"},
+		{name: "both present", kind: &kind, id: &id, want: Resource{Type: kind, ID: id}},
+		{name: "missing type", id: &id, bad: true},
+		{name: "missing id", kind: &kind, bad: true},
+		{name: "both empty", kind: &empty, id: &empty, bad: true},
+		{name: "empty type", kind: &empty, id: &id, bad: true},
+		{name: "empty id", kind: &kind, id: &empty, bad: true},
+		{name: "invalid type", kind: &invalid, id: &id, bad: true},
+		{name: "invalid id", kind: &kind, id: &invalid, bad: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := storedResource(tc.kind, tc.id)
+			if tc.bad {
+				if !errors.Is(err, ErrStorage) || got != (Resource{}) {
+					t.Fatal("corrupt link accepted", got, err)
+				}
+			} else if err != nil || got != tc.want {
+				t.Fatal(got, err)
+			}
+		})
+	}
+}
+
 func TestResourceBindingAdmissionWithoutDatabase(t *testing.T) {
 	now := time.Date(2026, 10, 24, 5, 0, 0, 0, time.UTC)
 	token := Reservation{request: request(), id: "own-reservation"}
