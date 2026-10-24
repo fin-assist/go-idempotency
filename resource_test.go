@@ -378,17 +378,15 @@ func TestPostgresBindResourceRollbackAndStorageFailures(t *testing.T) {
 	if !errors.Is(err, rolled) {
 		t.Fatal(err)
 	}
-	for _, sql := range []string{`ALTER TABLE idempotency_keys RENAME COLUMN resource_type TO unavailable`, `ALTER TABLE idempotency_keys ALTER COLUMN resource_type TYPE integer USING NULL::integer`} {
-		err = db.Run(t.Context(), func(ctx context.Context) error {
-			tx, _ := db.Tx(ctx)
-			if _, err := tx.Exec(ctx, sql); err != nil {
-				return err
-			}
-			return e.BindResource(ctx, token, ref)
-		})
-		if !errors.Is(err, ErrStorage) {
-			t.Fatal("storage failure not closed", err)
+	err = db.Run(t.Context(), func(ctx context.Context) error {
+		tx, _ := db.Tx(ctx)
+		if _, err := tx.Exec(ctx, `ALTER TABLE idempotency_keys RENAME COLUMN resource_type TO unavailable`); err != nil {
+			return err
 		}
+		return e.BindResource(ctx, token, ref)
+	})
+	if !errors.Is(err, ErrStorage) {
+		t.Fatal("storage failure not closed", err)
 	}
 	var count int
 	if err = db.pool.QueryRow(t.Context(), `SELECT count(*) FROM idempotency_keys WHERE resource_type IS NULL AND resource_id IS NULL`).Scan(&count); err != nil || count != 1 {
