@@ -187,6 +187,9 @@ Test changes to the report with `python3 -m unittest discover -s scripts -p 'tes
   release PR, not a moved tag or a rerun of the old workflow: it reads CHANGELOG from the immutable tag commit.
   Follow `docs/releasing.md` for the v0.4.1 recovery and distinguish a published module/GitHub Release from a
   successful Release workflow.
+- Release publication is repeatable: `scripts/publish-release.py` reconciles the title/notes of an existing
+  stable release. A manual `Release` run from main accepts an existing tag, validates its own CHANGELOG and
+  main ancestry, and uses the publisher from main. It never creates or changes tags; see docs/releasing.md.
 - After the PR is open and all planned changes are pushed, request a review with one PR comment in Russian addressed
   to both reviewers; it starts with `@codex @claude`:
 
