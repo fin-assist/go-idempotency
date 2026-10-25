@@ -122,7 +122,8 @@ func validResponse(r Response) bool {
 	}
 	total := 0
 	for k, values := range r.Headers {
-		if k == "" || len(values) > 64 || strings.HasPrefix(k, "grpc-") {
+		// Binary "-bin" values do not survive the JSON outcome format byte for byte.
+		if k == "" || len(values) > 64 || strings.HasPrefix(k, "grpc-") || strings.HasSuffix(k, "-bin") {
 			return false
 		}
 		for _, c := range k {
@@ -135,11 +136,22 @@ func validResponse(r Response) bool {
 		total += len(k)
 		for _, v := range values {
 			total += len(v)
-			if strings.ContainsAny(v, "\r\n") {
+			if !printableASCII(v) {
 				return false
 			}
 		}
 		if total > 16384 {
+			return false
+		}
+	}
+	return true
+}
+
+// printableASCII mirrors gRPC metadata value rules for non-binary keys, so a
+// committed outcome is always sendable by grpc.SetHeader, including on replay.
+func printableASCII(v string) bool {
+	for i := 0; i < len(v); i++ {
+		if v[i] < 0x20 || v[i] > 0x7e {
 			return false
 		}
 	}

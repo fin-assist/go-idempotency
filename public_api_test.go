@@ -403,6 +403,10 @@ func TestAPIConsumerConfiguredAdmissionAndStoredErrors(t *testing.T) {
 	if !errors.Is(err, denied) {
 		t.Fatal(err)
 	}
+	_, err = e.UnaryInterceptor(func(context.Context) (string, error) { return "not-a-user-uuid", nil })(incoming, nil, info, handler)
+	if rest, ok := finerr.ToREST(err); !ok || rest.Code != "INTERNAL_ERROR" {
+		t.Fatalf("malformed service scope blamed the client: %v", err)
+	}
 	_, err = e.UnaryInterceptor(nil)(incoming, nil, info, handler)
 	if !errors.Is(err, idem.ErrInvalidRequest) {
 		t.Fatal(err)
@@ -483,7 +487,7 @@ func TestAPIConsumerRejectsInvalidPoliciesRequestsAndResponses(t *testing.T) {
 	if released, err := e.ReleaseIfCurrent(ctx, idem.Reservation{}); err != nil || released {
 		t.Fatalf("zero token=%v %v", released, err)
 	}
-	responses := []idem.Response{{Body: make([]byte, (4<<20)+1)}, {Headers: map[string][]string{"BAD": {"value"}}}, {Headers: map[string][]string{"grpc-status": {"value"}}}, {Headers: map[string][]string{"x-result": {"bad\r\nheader"}}}, {Headers: map[string][]string{"x-result": {strings.Repeat("x", 16385)}}}, {OwnerID: publicForeign}, {OwnerID: "invalid"}, {Resource: idem.Resource{Type: "only"}}, {Resource: idem.Resource{Type: "Invalid", ID: "1"}}, {Resource: idem.Resource{Type: "operation", ID: "unsafe id"}}, {DuplicateRetryAt: time.Now().Add(time.Hour)}}
+	responses := []idem.Response{{Body: make([]byte, (4<<20)+1)}, {Headers: map[string][]string{"BAD": {"value"}}}, {Headers: map[string][]string{"grpc-status": {"value"}}}, {Headers: map[string][]string{"x-result": {"bad\r\nheader"}}}, {Headers: map[string][]string{"x-result": {strings.Repeat("x", 16385)}}}, {Headers: map[string][]string{"x-result": {"значение"}}}, {Headers: map[string][]string{"x-result": {"\x01"}}}, {Headers: map[string][]string{"x-result-bin": {"\xff"}}}, {OwnerID: publicForeign}, {OwnerID: "invalid"}, {Resource: idem.Resource{Type: "only"}}, {Resource: idem.Resource{Type: "Invalid", ID: "1"}}, {Resource: idem.Resource{Type: "operation", ID: "unsafe id"}}, {DuplicateRetryAt: time.Now().Add(time.Hour)}}
 	for _, response := range responses {
 		_, err := consumerDo(ctx, db, e, r, func(ctx context.Context) (idem.Response, error) {
 			tx, _ := db.Tx(ctx)
