@@ -50,7 +50,9 @@ func (s *usageServer) StartPhoneVerification(ctx context.Context, in *userv1.Sta
 			return Response{}, fmt.Errorf("private SQL users_phone_key: %w", finerr.WrongFormat())
 		}
 		if in.GetPhone() == "unsendable-header" {
-			return Response{Body: []byte("x"), Headers: map[string][]string{"x-result": {"не ASCII"}}}, nil
+			// A valid body: without FIN-296 the only failure left is grpc.SetHeader.
+			body, err := proto.Marshal(&userv1.StartPhoneVerificationResponse{VerificationToken: "opaque", CallbackNumber: "+78001234567", ExpiresAt: timestamppb.New(s.clock.Now().Add(5 * time.Minute))})
+			return Response{Body: body, Headers: map[string][]string{"x-result": {"не ASCII"}}}, err
 		}
 		if in.GetPhone() == "busy" {
 			retry := s.clock.Now().Add(time.Minute)
