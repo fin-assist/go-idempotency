@@ -13,6 +13,7 @@
 - FIN-244: пример и consumer-тесты композиции с опубликованным go-postgres v0.1.2, Publisher outbox и tombstone Guard: общий COMMIT, replay, вложенный Run, полный откат при callback/deferred FK, чужой Manager, отмена/panic/Goexit. Guard пользовательского scope проверяется до чтения ключа, Purge атомарно удаляет outcomes по scope/owner. Production API и интерфейс Tx не изменены; новые зависимости используются только тестами и примерами.
 ### Изменено
 
+- FIN-317: `internal/pgtest` больше не копирует go-migrate (по FIN-310): оставлен только выбор тестового PostgreSQL (`TEST_DATABASE_URL`/testcontainers, skip локально, ошибка в CI), создание БД, правила файлов и обход up → down → up делегированы `github.com/fin-assist/go-migrate` v0.1.1. go-migrate импортируется только тестами, но как require модуля входит в граф модулей и повышает минимальную версию go-migrate у сервисов, импортирующих библиотеку (сервисы уже на v0.1.1). Исключение `internal/pgtest` из покрытия не изменилось; runtime и экспортируемый API не менялись.
 - FIN-243: независимые unit/integration/API statements gates 80 % production-пакетов (по согласованию исключён только internal/pgtest), защита от пустых suite и содержательные тесты публичного API; прежний coverage-diff удалён. Runtime и экспортируемый API не изменены.
 
 ## [v0.4.1] — 2026-10-24

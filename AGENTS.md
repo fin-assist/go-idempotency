@@ -36,7 +36,7 @@ for itself: what it does, its YouTrack issue, which services use it.
 | Public API of the library | `types.go`, `context.go` (metadata/hash/completion), `engine.go` (Do/Reserve/DoReserved/Release), `storage.go` (Cleanup), `codec.go` (stored outcomes) |
 | Implementation details | `internal/` |
 | Migration source for the service runner (`Migrations`, `MigrationsName`, `MigrationsTable`) | `migrations.go`, `migrations/` |
-| PostgreSQL for tests, up → down → up check | `internal/pgtest/` (mirrors `migratetest` of the service template) |
+| PostgreSQL for tests, up → down → up check | `internal/pgtest/`: only server selection; databases, file rules and the walk delegate to the tagged `go-migrate` (`migratetest`, `migrate.Validate`; FIN-317) |
 | Integration guide for services | `README.md`, «Внедрение» |
 | Public consumer composition with published Manager, outbox and tombstone (FIN-244) | `fin244_manager_test.go`, `fin244_manager_example_test.go`; no concrete manager in production interfaces |
 | Versions, compatibility, releases, Renovate | `docs/releasing.md`, `CHANGELOG.md`, `.github/workflows/release.yml`, `renovate.json` |
@@ -47,7 +47,7 @@ for itself: what it does, its YouTrack issue, which services use it.
 ### Stack
 
 Versions are in `go.mod` (Go toolchain included), `.github/workflows/ci.yml` and `Makefile` (golangci-lint,
-gorelease), `internal/pgtest.DefaultImage` (PostgreSQL). The same pieces as the services where needed: pgx v5,
+gorelease), `internal/pgtest.DefaultImage` (PostgreSQL), `go-migrate` (test-only, FIN-317). The same pieces as the services where needed: pgx v5,
 golang-migrate, grpc-go, protobuf, prometheus client_golang, testcontainers-go, squawk. A new dependency is named in
 the PR with why it is needed: every service that imports the library inherits it.
 
