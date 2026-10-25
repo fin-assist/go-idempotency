@@ -29,7 +29,7 @@ func readLegacyRow(t *testing.T, db *serviceDB, key string) legacyRow {
 func TestIntegrationPostgresLegacyUnsendableHeaderReplayFailsClosed(t *testing.T) {
 	for name, payload := range map[string]string{
 		"non-ascii value": `{"Response":{"Body":"YW5zd2Vy","Headers":{"x-text":["ё"]}}}`,
-		"binary key":      `{"Response":{"Body":"YW5zd2Vy","Headers":{"x-trace-bin":["�"]}}}`,
+		"binary key":      `{"Response":{"Body":"YW5zd2Vy","Headers":{"x-trace-bin":["a"]}}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			e, db, _ := setup(t)
