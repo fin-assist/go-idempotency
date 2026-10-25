@@ -84,6 +84,18 @@ func TestUnitStreamInterceptorMatchesUnaryRules(t *testing.T) {
 	if err := interceptor(nil, valid, info, next); err != nil || calls != 1 {
 		t.Fatal(err, calls)
 	}
+	// A configured method always gets the request-carrying wrapper, never the
+	// original stream, even when the incoming context is reused as is.
+	var wrapped grpc.ServerStream
+	if err := interceptor(nil, valid, info, func(_ any, ss grpc.ServerStream) error { wrapped = ss; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := wrapped.(*requestStream); !ok {
+		t.Fatalf("configured method got %T", wrapped)
+	}
+	if _, ok := FromContext(valid.Context()); ok {
+		t.Fatal("the caller's context was modified")
+	}
 	if err := e.StreamInterceptor(func(context.Context) (string, error) { return "", finerr.InvalidToken() })(nil, valid, info, next); status.Code(err) != codes.Unauthenticated {
 		t.Fatal(err)
 	}

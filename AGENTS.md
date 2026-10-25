@@ -123,7 +123,7 @@ The same priorities and rules as the services (`AGENTS.md` of `fin-assist/go-ser
   Lint cannot see options: a library always passes the providers explicitly (`otelhttp`/`otelgrpc` with
   `WithTracerProvider`/`WithMeterProvider`; without them they take the global ones). grpc-go itself imports
   `golang.org/x/net/trace` unless built with the `grpcnotrace` tag; that is the service's build decision. The probe's
-  pinned versions outside `go.mod` (`PINNED` in the script) are raised by hand: Renovate does not read them. Versions read from `go.mod` must survive the probe's `go mod tidy` exactly; a hand pin may only be raised by it (semver, never lowered), when a module Renovate moved in `go.mod` requires a newer release (otel v1.47 requires otel/log v1.47).
+  pinned versions outside `go.mod` (`PINNED` in the script) are raised by hand: Renovate does not read them. Each probe module that `go.mod` lists is probed at the higher of its `go.mod` version and the hand version and must survive the probe's `go mod tidy` exactly; the hand version is used only for a module absent from `go.mod` and is a minimum there (tidy may raise it by semver, never lower it), e.g. when otel moved by Renovate requires a newer otel/log (otel v1.47 requires otel/log v1.47). The choice follows `go.mod` itself, not a fixed list.
 - **The service owns the transaction.** A library that writes together with the effect (idempotency, outbox,
   tombstone) takes it through a consumer interface — `interface{ Tx(context.Context) (pgx.Tx, bool) }`, implemented
   by `postgres.DB` of the service template — and returns an error when there is none, instead of writing outside it.

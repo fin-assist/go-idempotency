@@ -71,12 +71,12 @@ func (e *Engine) UnaryInterceptor(scope func(context.Context) (string, error)) g
 // Do or Reserve there. Errors are the same as UnaryInterceptor's.
 func (e *Engine) StreamInterceptor(scope func(context.Context) (string, error)) grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, next grpc.StreamHandler) error {
+		if _, ok := e.methods[info.FullMethod]; !ok {
+			return next(srv, ss)
+		}
 		ctx, err := e.withRequest(ss.Context(), info.FullMethod, scope)
 		if err != nil {
 			return err
-		}
-		if ctx == ss.Context() {
-			return next(srv, ss)
 		}
 		return next(srv, &requestStream{ServerStream: ss, ctx: ctx})
 	}
