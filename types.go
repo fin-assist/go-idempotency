@@ -66,6 +66,9 @@ type Request struct {
 }
 
 // Response holds the serialized successful reply and bounded application headers.
+// Header names use [a-z0-9._-], must not start with "grpc-" or end with "-bin";
+// values are printable ASCII (0x20-0x7E), as gRPC sends them. Other headers
+// return ErrInvalidRequest before anything is stored.
 // The service chooses its format (for example protobuf for gRPC, JSON for HTTP).
 // Errors are returned separately by the effect.
 type Response struct {

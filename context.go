@@ -50,6 +50,8 @@ func preflightContext(completion, original context.Context) (context.Context, co
 // UnaryInterceptor extracts metadata for configured methods only. Place it after
 // authentication/tombstones. scope must return only a VERIFIED user UUID (or
 // empty for a no-user method); it must fail closed when identity is missing.
+// A non-UUID scope returns INTERNAL_ERROR; a missing, repeated or malformed key
+// returns VALIDATION_ERROR.
 // Validation, effects and transactions remain the handler's responsibility.
 func (e *Engine) UnaryInterceptor(scope func(context.Context) (string, error)) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
@@ -63,9 +65,13 @@ func (e *Engine) UnaryInterceptor(scope func(context.Context) (string, error)) g
 		if err != nil {
 			return nil, err
 		}
+		if user != "" && !validUUID(user) {
+			// A malformed scope is the service's fault, not the client's key.
+			return nil, finerr.InternalError()
+		}
 		md, _ := metadata.FromIncomingContext(ctx)
 		keys := md.Get("idempotency-key")
-		if len(keys) != 1 || !validUUID(keys[0]) || (user != "" && !validUUID(user)) {
+		if len(keys) != 1 || !validUUID(keys[0]) {
 			return nil, invalidKey()
 		}
 		r := Request{Scope: strings.ToLower(user), Endpoint: info.FullMethod, Key: strings.ToLower(keys[0])}

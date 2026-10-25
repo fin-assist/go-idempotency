@@ -49,6 +49,11 @@ func (s *usageServer) StartPhoneVerification(ctx context.Context, in *userv1.Sta
 		if in.GetPhone() == "wrapped" {
 			return Response{}, fmt.Errorf("private SQL users_phone_key: %w", finerr.WrongFormat())
 		}
+		if in.GetPhone() == "unsendable-header" {
+			// A valid body: without FIN-296 the only failure left is grpc.SetHeader.
+			body, err := proto.Marshal(&userv1.StartPhoneVerificationResponse{VerificationToken: "opaque", CallbackNumber: "+78001234567", ExpiresAt: timestamppb.New(s.clock.Now().Add(5 * time.Minute))})
+			return Response{Body: body, Headers: map[string][]string{"x-result": {"не ASCII"}}}, err
+		}
 		if in.GetPhone() == "busy" {
 			retry := s.clock.Now().Add(time.Minute)
 			return Response{DuplicateRetryAt: retry}, finerr.RateLimited(retry)
@@ -125,6 +130,18 @@ func TestIntegrationUsageGeneratedClientAndContractErrors(t *testing.T) {
 		}
 	}
 	assertCount(t, db, 2)
+	// A header grpc.SetHeader would reject must roll back with the effect instead
+	// of committing an outcome no attempt can ever deliver.
+	unsendable := metadata.NewOutgoingContext(ctx, metadata.Pairs("idempotency-key", "88888888-8888-4888-8888-888888888888"))
+	for range 2 {
+		_, err = client.StartPhoneVerification(unsendable, &userv1.StartPhoneVerificationRequest{Phone: "unsendable-header"})
+		assertReason(t, err, "INTERNAL_ERROR")
+	}
+	assertCount(t, db, 2)
+	var stored int
+	if err = db.pool.QueryRow(ctx, "SELECT count(*) FROM idempotency_keys WHERE key='88888888-8888-4888-8888-888888888888'").Scan(&stored); err != nil || stored != 0 {
+		t.Fatal("unsendable outcome stored:", stored, err)
+	}
 	token := reserve(t, e, db, Request{Endpoint: "/finassist.user.v1.AuthService/StartPhoneVerification", Key: "77777777-7777-4777-8777-777777777777", Hash: func() [32]byte { h, _ := HashProto(in); return h }()})
 	_ = token
 	pending := metadata.NewOutgoingContext(ctx, metadata.Pairs("idempotency-key", "77777777-7777-4777-8777-777777777777"))

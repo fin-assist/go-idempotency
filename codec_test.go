@@ -131,8 +131,13 @@ func TestUnitHashAndMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	fail = e.UnaryInterceptor(func(context.Context) (string, error) { return "forged", nil })
-	if _, err = fail(ctx, nil, &grpc.UnaryServerInfo{FullMethod: testMethod}, next); err == nil {
-		t.Fatal("forged scope accepted")
+	_, err = fail(ctx, nil, &grpc.UnaryServerInfo{FullMethod: testMethod}, next)
+	if rest, ok := finerr.ToREST(err); !ok || rest.Code != "INTERNAL_ERROR" || status.Code(err) != codes.Internal || calls != 1 {
+		t.Fatal("malformed scope must be a server error, not the client's key:", err, calls)
+	}
+	// The scope check comes first: even a missing key does not blame the client.
+	if _, err = fail(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: testMethod}, next); status.Code(err) != codes.Internal {
+		t.Fatal(err)
 	}
 	called := false
 	_, err = interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/other/Read"}, func(context.Context, any) (any, error) { called = true; return nil, nil })
@@ -183,6 +188,20 @@ func TestUnitCodecPoliciesAndEncryption(t *testing.T) {
 	for _, domain := range []error{finerr.InvalidToken(), finerr.ConsentRequired(), finerr.NotFound(), finerr.IdempotencyConflict(), finerr.RateLimited(time.Now().Add(time.Hour)), finerr.InternalError()} {
 		if _, _, err := e.encode(r, Policy{TTL: time.Hour}, Result{Err: domain}); !errors.Is(err, ErrNotStored) {
 			t.Fatal(domain, err)
+		}
+	}
+	sendable := Response{Headers: map[string][]string{"x-printable": {" !~azAZ09"}}}
+	if _, _, err := e.encode(r, Policy{}, Result{Response: sendable}); err != nil {
+		t.Fatal("printable ASCII header rejected:", err)
+	}
+	for _, response := range []Response{{Headers: map[string][]string{"x-text": {"ё"}}}, {Headers: map[string][]string{"x-text": {"tab\t"}}}, {Headers: map[string][]string{"x-text": {"\x7f"}}}, {Headers: map[string][]string{"x-text": {"nul\x00"}}}, {Headers: map[string][]string{"x-trace-bin": {"\xff\x00"}}}, {Headers: map[string][]string{"x-trace-bin": {"ascii"}}}} {
+		if _, _, err := e.encode(r, Policy{}, Result{Response: response}); !errors.Is(err, ErrInvalidRequest) {
+			t.Fatal("header gRPC cannot send or JSON cannot preserve was accepted:", response.Headers, err)
+		}
+	}
+	for _, payload := range []string{`{"Response":{"Headers":{"x-text":["\u0451"]}}}`, `{"Response":{"Headers":{"x-trace-bin":["a"]}}}`} {
+		if _, err := e.decode(r, record{payload: []byte(payload)}); !errors.Is(err, ErrStorage) {
+			t.Fatal("unsendable stored header accepted:", payload, err)
 		}
 	}
 	for _, response := range []Response{{Body: make([]byte, maxBody+1)}, {Headers: map[string][]string{"bad\n": {"x"}}}, {Headers: map[string][]string{"grpc-test": {"x"}}}, {Headers: map[string][]string{"x": {"bad\n"}}}, {Headers: map[string][]string{"x": {strings.Repeat("x", 16385)}}}} {

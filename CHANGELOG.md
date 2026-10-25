@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Несовместимо
+
+- FIN-296: `Response.Headers` принимает только значения из печатного ASCII `0x20–0x7E` и ключи без суффикса `-bin`; иначе `ErrInvalidRequest` и откат эффекта. Раньше такой исход коммитился, но `grpc.SetHeader` отказывал при каждой отправке (INTERNAL на 24 ч), а бинарные значения искажались при replay. Непустой scope не в формате UUID теперь даёт в интерцепторе `INTERNAL_ERROR` вместо `VALIDATION_ERROR` по `idempotency-key`. Исход, сохранённый до обновления с ключом `-bin` или значением вне `0x20–0x7E`, при replay до своего `expires_at` даёт `ErrStorage` (сервис отвечает `INTERNAL_ERROR` вместо сохранённого ответа), эффект не повторяется — отказ закрытый. user и assistant заголовков не сохраняют и передают проверенный UUID — правок не требуется; bank-statement-data библиотеку пока не подключает и не затронут. Бинарные данные сервис переносит в тело ответа.
+
 ### Добавлено
 
 - FIN-244: пример и consumer-тесты композиции с опубликованным go-postgres v0.1.2, Publisher outbox и tombstone Guard: общий COMMIT, replay, вложенный Run, полный откат при callback/deferred FK, чужой Manager, отмена/panic/Goexit. Guard пользовательского scope проверяется до чтения ключа, Purge атомарно удаляет outcomes по scope/owner. Production API и интерфейс Tx не изменены; новые зависимости используются только тестами и примерами.
