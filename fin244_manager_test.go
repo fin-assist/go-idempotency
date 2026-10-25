@@ -28,6 +28,7 @@ import (
 )
 
 const managerOwner = "4a25f514-a58d-4e4e-a722-98e27eaa4e70"
+const managerPhoneEndpoint = "/finassist.user.v1.AuthService/StartPhoneVerification"
 
 // This consumer uses only public library APIs. Every collaborator receives the
 // same manager, while a second connection observes actual committed state.
@@ -68,7 +69,11 @@ func newManagerConsumer(t *testing.T) *managerConsumer {
 		}
 	}
 	manager := postgres.New(pool)
-	engine, err := idem.New(manager, idem.Options{Methods: map[string]idem.Policy{"CreateRecord": {}}, Clock: time.Now, Registerer: prometheus.NewRegistry()})
+	cipher, err := idem.NewCipher(make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := idem.New(manager, idem.Options{Methods: map[string]idem.Policy{"CreateRecord": {}, managerPhoneEndpoint: {Encrypt: true}}, Cipher: cipher, Clock: time.Now, Registerer: prometheus.NewRegistry()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,13 +127,6 @@ func managerRequest() idem.Request {
 }
 
 func (c *managerConsumer) write(ctx context.Context, catalog int) (idem.Response, error) {
-	alive, err := c.guard.Guard(ctx, managerOwner)
-	if err != nil {
-		return idem.Response{}, err
-	}
-	if !alive {
-		return idem.Response{}, finerr.TokenRevoked()
-	}
 	tx, ok := c.manager.Tx(ctx)
 	if !ok {
 		return idem.Response{}, idem.ErrNoTransaction
@@ -143,21 +141,24 @@ func (c *managerConsumer) write(ctx context.Context, catalog int) (idem.Response
 }
 
 func (c *managerConsumer) execute(ctx context.Context, effect func(context.Context) (idem.Response, error)) (idem.Result, error) {
+	return c.executeRequest(ctx, managerRequest(), effect)
+}
+
+func (c *managerConsumer) executeRequest(ctx context.Context, request idem.Request, effect func(context.Context) (idem.Response, error)) (idem.Result, error) {
 	completion, cancel := c.engine.WithCompletion(ctx)
 	defer cancel() // includes the real outer COMMIT
 	var result idem.Result
 	err := c.manager.Run(completion, func(ctx context.Context) error {
-		var err error
-		result, err = c.engine.Do(ctx, managerRequest(), effect)
-		if err == nil && result.Replayed && result.Err == nil {
-			alive, guardErr := c.guard.Guard(ctx, managerOwner)
-			if guardErr != nil {
-				return guardErr
-			}
-			if !alive {
-				return finerr.TokenRevoked()
-			}
+		// Scope is the verified user: guard before reading or decrypting any outcome,
+		// including a saved refusal. The lock serializes this entire operation with Purge.
+		alive, err := c.guard.Guard(ctx, request.Scope)
+		if err != nil {
+			return err
 		}
+		if !alive {
+			return finerr.TokenRevoked()
+		}
+		result, err = c.engine.Do(ctx, request, effect)
 		return err // cacheable result.Err is returned only after successful COMMIT
 	})
 	return result, err
@@ -324,7 +325,14 @@ func TestIntegrationManagerCompositionAbnormalEffectReleasesEverything(t *testin
 				completion, cancel := c.engine.WithCompletion(t.Context())
 				defer cancel()
 				err := c.manager.Run(completion, func(ctx context.Context) error {
-					_, err := c.engine.Do(ctx, managerRequest(), func(ctx context.Context) (idem.Response, error) {
+					alive, err := c.guard.Guard(ctx, managerOwner)
+					if err != nil {
+						return err
+					}
+					if !alive {
+						return finerr.TokenRevoked()
+					}
+					_, err = c.engine.Do(ctx, managerRequest(), func(ctx context.Context) (idem.Response, error) {
 						response, err := c.write(ctx, 1)
 						if err != nil {
 							return response, err
@@ -390,12 +398,41 @@ func TestAPIManagerCompositionClientCancellationAfterEffectStillCommits(t *testi
 
 func TestAPIManagerCompositionDeletionAndReplayGuardStayAtomic(t *testing.T) {
 	c := newManagerConsumer(t)
-	if _, err := c.execute(t.Context(), func(ctx context.Context) (idem.Response, error) { return c.write(ctx, 1) }); err != nil {
+	if _, err := c.execute(t.Context(), func(ctx context.Context) (idem.Response, error) {
+		response, err := c.write(ctx, 1)
+		response.OwnerID = "" // This row must be removed through scope, not owner_id.
+		return response, err
+	}); err != nil {
 		t.Fatal(err)
 	}
+	// Model a no-user auth outcome whose owner was verified by the service.
+	// Its nil scope must not cause all no-user outcomes to be deleted.
+	authRequest := managerRequest()
+	authRequest.Scope = ""
+	completion, cancel := c.engine.WithCompletion(t.Context())
+	defer cancel()
+	if err := c.manager.Run(completion, func(ctx context.Context) error {
+		alive, err := c.guard.Guard(ctx, managerOwner)
+		if err != nil {
+			return err
+		}
+		if !alive {
+			return finerr.TokenRevoked()
+		}
+		_, err = c.engine.Do(ctx, authRequest, func(context.Context) (idem.Response, error) {
+			return idem.Response{Body: []byte("auth outcome"), OwnerID: managerOwner}, nil
+		})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c.assertCounts(t, 1, 2, 1)
 	remove := func(ctx context.Context, owner string) error {
 		tx, _ := c.manager.Tx(ctx)
 		if _, err := tx.Exec(ctx, `DELETE FROM service_records WHERE owner_id=$1`, owner); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM idempotency_keys WHERE scope=$1::uuid OR owner_id=$1::uuid`, owner); err != nil {
 			return err
 		}
 		return c.publisher.Publish(ctx, "record.deleted", owner, nil)
@@ -410,7 +447,7 @@ func TestAPIManagerCompositionDeletionAndReplayGuardStayAtomic(t *testing.T) {
 	if !errors.Is(err, refusal) {
 		t.Fatal(err)
 	}
-	c.assertCounts(t, 1, 1, 1)
+	c.assertCounts(t, 1, 2, 1)
 	if deleted, err := c.guard.Deleted(t.Context(), managerOwner); err != nil || deleted {
 		t.Fatal("rollback kept tombstone", deleted, err)
 	}
@@ -420,11 +457,85 @@ func TestAPIManagerCompositionDeletionAndReplayGuardStayAtomic(t *testing.T) {
 	if deleted, err := c.guard.Deleted(t.Context(), managerOwner); err != nil || !deleted {
 		t.Fatal("deletion was not committed", deleted, err)
 	}
-	called := false
-	_, err = c.execute(t.Context(), func(context.Context) (idem.Response, error) { called = true; return idem.Response{}, nil })
-	rest, ok := finerr.ToREST(err)
-	if !ok || rest.Code != "TOKEN_REVOKED" || called {
-		t.Fatal("deleted owner replay accepted", called, err)
+	for _, key := range []string{managerRequest().Key, "8f5301d3-3e0b-439a-a8d4-54832973f677"} {
+		request := managerRequest()
+		request.Key = key
+		called := false
+		result, err := c.executeRequest(t.Context(), request, func(context.Context) (idem.Response, error) { called = true; return idem.Response{}, nil })
+		rest, ok := finerr.ToREST(err)
+		if !ok || rest.Code != "TOKEN_REVOKED" || called || result.Replayed || result.Err != nil || len(result.Response.Body) != 0 {
+			t.Fatal("deleted user reached outcome/effect", result, called, err)
+		}
+		c.assertCounts(t, 0, 0, 2)
 	}
-	c.assertCounts(t, 0, 1, 2)
+}
+
+func TestAPIManagerCompositionGuardsBeforeReadingStaleEncryptedOutcomes(t *testing.T) {
+	for _, savedRefusal := range []bool{false, true} {
+		t.Run(map[bool]string{false: "success", true: "saved RATE_LIMITED"}[savedRefusal], func(t *testing.T) {
+			c := newManagerConsumer(t)
+			request := managerRequest()
+			request.Endpoint = managerPhoneEndpoint
+			calls := 0
+			retry := time.Now().Add(time.Minute)
+			effect := func(context.Context) (idem.Response, error) {
+				calls++
+				if savedRefusal {
+					return idem.Response{DuplicateRetryAt: retry}, finerr.RateLimited(retry)
+				}
+				return idem.Response{Body: []byte("encrypted outcome"), OwnerID: managerOwner}, nil
+			}
+			result, err := c.executeRequest(t.Context(), request, effect)
+			if err != nil || result.Replayed {
+				t.Fatal(result, err)
+			}
+			if savedRefusal {
+				rest, ok := finerr.ToREST(result.Err)
+				if !ok || rest.Code != "RATE_LIMITED" {
+					t.Fatal(result.Err)
+				}
+			}
+			result, err = c.executeRequest(t.Context(), request, effect)
+			if err != nil || !result.Replayed || calls != 1 {
+				t.Fatal(result, calls, err)
+			}
+			var encrypted bool
+			if err := c.pool.QueryRow(t.Context(), `SELECT encrypted FROM idempotency_keys`).Scan(&encrypted); err != nil || !encrypted {
+				t.Fatal("fixture was not encrypted", encrypted, err)
+			}
+			// Artificial stale-outcome fixture, NOT normal Purge: intentionally retain
+			// the old encrypted row to prove denial occurs before any key/payload read.
+			// Normal service deletion removes scope OR owner_id as tested separately.
+			if err := c.manager.Run(t.Context(), func(ctx context.Context) error {
+				return c.guard.Purge(ctx, managerOwner, func(context.Context, string) error { return nil })
+			}); err != nil {
+				t.Fatal(err)
+			}
+			blocker, err := c.pool.Begin(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				_ = blocker.Rollback(ctx)
+			}()
+			if _, err := blocker.Exec(t.Context(), `LOCK TABLE idempotency_keys IN ACCESS EXCLUSIVE MODE`); err != nil {
+				t.Fatal(err)
+			}
+			// Any Do/key read would block behind this lock until the request deadline.
+			// The verified-user Guard must return TOKEN_REVOKED without touching it.
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			result, err = c.executeRequest(ctx, request, effect)
+			cancel()
+			rest, ok := finerr.ToREST(err)
+			if !ok || rest.Code != "TOKEN_REVOKED" || calls != 1 || result.Replayed || result.Err != nil || len(result.Response.Body) != 0 || result.Response.OwnerID != "" {
+				t.Fatal("outcome was read before guard", result, calls, err)
+			}
+			if err := blocker.Rollback(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			c.assertCounts(t, 0, 1, 0) // Only this explicitly stale fixture retains its old row.
+		})
+	}
 }

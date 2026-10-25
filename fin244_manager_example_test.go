@@ -36,15 +36,16 @@ func ExampleEngine_Do_manager() {
 			defer cancel() // includes the outer commit, not just Engine.Do
 			var result idem.Result
 			err := manager.Run(completion, func(txCtx context.Context) error {
-				var err error
+				// This example has a verified user scope: guard before Do can
+				// read/decrypt a success OR a saved refusal. Purge takes this lock too.
+				alive, err := guard.Guard(txCtx, request.Scope)
+				if err != nil {
+					return err
+				}
+				if !alive {
+					return finerr.TokenRevoked()
+				}
 				result, err = engine.Do(txCtx, request, func(effectCtx context.Context) (idem.Response, error) {
-					alive, err := guard.Guard(effectCtx, request.Scope) // verified user, never request-body identity
-					if err != nil {
-						return idem.Response{}, err
-					}
-					if !alive {
-						return idem.Response{}, finerr.TokenRevoked()
-					}
 					tx, _ := manager.Tx(effectCtx)
 					if _, err = tx.Exec(effectCtx, `INSERT INTO service_records(owner_id,catalog_id) VALUES($1,$2)`, request.Scope, 1); err != nil {
 						return idem.Response{}, err
@@ -54,20 +55,12 @@ func ExampleEngine_Do_manager() {
 					}
 					return idem.Response{Body: []byte("created"), OwnerID: request.Scope}, nil
 				})
-				if err == nil && result.Replayed && result.Err == nil {
-					alive, guardErr := guard.Guard(txCtx, request.Scope)
-					if guardErr != nil {
-						return guardErr
-					}
-					if !alive {
-						return finerr.TokenRevoked()
-					}
-				}
 				return err // Never return result.Err here: a cacheable refusal must commit.
 			})
-			// The transport handles ErrNotStored after rollback, result.Err after commit,
-			// and replay-owner authorization before responding. Unknown errors (including
-			// raw COMMIT failures) become bare INTERNAL, never err.Error().
+			// The transport handles ErrNotStored after rollback and result.Err after commit.
+			// No-user auth instead guards the discovered/replayed owner.
+			// Unknown errors, including raw COMMIT failures, become bare INTERNAL,
+			// never err.Error().
 			return result, err
 		}, nil
 	}
