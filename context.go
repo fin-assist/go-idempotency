@@ -55,31 +55,69 @@ func preflightContext(completion, original context.Context) (context.Context, co
 // Validation, effects and transactions remain the handler's responsibility.
 func (e *Engine) UnaryInterceptor(scope func(context.Context) (string, error)) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
-		if _, ok := e.methods[info.FullMethod]; !ok {
-			return next(ctx, req)
-		}
-		if scope == nil {
-			return nil, ErrInvalidRequest
-		}
-		user, err := scope(ctx)
+		ctx, err := e.withRequest(ctx, info.FullMethod, scope)
 		if err != nil {
 			return nil, err
 		}
-		if user != "" && !validUUID(user) {
-			// A malformed scope is the service's fault, not the client's key.
-			return nil, finerr.InternalError()
-		}
-		md, _ := metadata.FromIncomingContext(ctx)
-		keys := md.Get("idempotency-key")
-		if len(keys) != 1 || !validUUID(keys[0]) {
-			return nil, invalidKey()
-		}
-		r := Request{Scope: strings.ToLower(user), Endpoint: info.FullMethod, Key: strings.ToLower(keys[0])}
-		return next(context.WithValue(ctx, requestKey{}, r), req)
+		return next(ctx, req)
 	}
 }
 
-// FromContext returns the identity and key extracted by UnaryInterceptor. The
+// StreamInterceptor is UnaryInterceptor for streaming methods such as the
+// client-streaming StatementsService/UploadStatement: the same method allowlist,
+// scope rules and key checks, applied once when the stream opens, before the
+// handler reads any message. FromContext(stream.Context()) then returns the
+// Request; the handler fills Hash at the end of the stream (HashUpload) and calls
+// Do or Reserve there. Errors are the same as UnaryInterceptor's.
+func (e *Engine) StreamInterceptor(scope func(context.Context) (string, error)) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, next grpc.StreamHandler) error {
+		if _, ok := e.methods[info.FullMethod]; !ok {
+			return next(srv, ss)
+		}
+		ctx, err := e.withRequest(ss.Context(), info.FullMethod, scope)
+		if err != nil {
+			return err
+		}
+		return next(srv, &requestStream{ServerStream: ss, ctx: ctx})
+	}
+}
+
+// requestStream overrides only the context of a server stream.
+type requestStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s *requestStream) Context() context.Context { return s.ctx }
+
+// withRequest returns ctx unchanged for a method outside the allowlist and a
+// context carrying the extracted Request for a configured one.
+func (e *Engine) withRequest(ctx context.Context, method string, scope func(context.Context) (string, error)) (context.Context, error) {
+	if _, ok := e.methods[method]; !ok {
+		return ctx, nil
+	}
+	if scope == nil {
+		return nil, ErrInvalidRequest
+	}
+	user, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if user != "" && !validUUID(user) {
+		// A malformed scope is the service's fault, not the client's key.
+		return nil, finerr.InternalError()
+	}
+	md, _ := metadata.FromIncomingContext(ctx)
+	keys := md.Get("idempotency-key")
+	if len(keys) != 1 || !validUUID(keys[0]) {
+		return nil, invalidKey()
+	}
+	r := Request{Scope: strings.ToLower(user), Endpoint: method, Key: strings.ToLower(keys[0])}
+	return context.WithValue(ctx, requestKey{}, r), nil
+}
+
+// FromContext returns the identity and key extracted by UnaryInterceptor or
+// StreamInterceptor. The
 // handler fills Hash before Do or Reserve. False means no configured method.
 func FromContext(ctx context.Context) (Request, bool) {
 	r, ok := ctx.Value(requestKey{}).(Request)
@@ -116,6 +154,21 @@ func HashFile(r io.Reader, maxBytes int64) ([32]byte, error) {
 	var out [32]byte
 	copy(out[:], h.Sum(nil))
 	return out, nil
+}
+
+// HashUpload returns the UploadStatement request hash of grpc-api.md section 6:
+// SHA-256(content ‖ fileName), where content is the 32-byte SHA-256 of all file
+// bytes in stream order (HashFile) and fileName is UploadHeader.file_name exactly
+// as received, as UTF-8 bytes without normalization; an empty name adds nothing.
+// The fixed-length first part makes the boundary unambiguous, so the same key
+// with the same content under another name is IDEMPOTENCY_CONFLICT.
+func HashUpload(content [32]byte, fileName string) [32]byte {
+	h := sha256.New()
+	h.Write(content[:])
+	h.Write([]byte(fileName))
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
 }
 
 func validUUID(s string) bool {

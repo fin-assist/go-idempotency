@@ -56,6 +56,26 @@ func ExampleHashFile() {
 	fmt.Printf("%x %v\n", hash, err)
 	// Output: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad <nil>
 }
+func ExampleHashUpload() {
+	// UploadStatement: hash the streamed file, then bind the name (grpc-api.md 6).
+	content, err := idem.HashFile(strings.NewReader("abc"), 1<<20)
+	if err != nil {
+		return
+	}
+	hash := idem.HashUpload(content, "a.ofx")
+	fmt.Printf("%x\n", hash)
+	// Output: d9fb384452d7a77b146b8b18cf9aa78f81f5b0e02b1d35e62b8fd1c26441b4d7
+}
+func ExampleEngine_StreamInterceptor() {
+	configure := func(e *idem.Engine, verifiedUser func(context.Context) (string, error)) {
+		interceptor := e.StreamInterceptor(verifiedUser)
+		// Install after identity and tombstone stream interceptors. The handler reads
+		// idem.FromContext(stream.Context()), sets Hash with HashUpload after the last
+		// chunk and calls Do in the service transaction.
+		_ = interceptor
+	}
+	_ = configure
+}
 func ExampleEngine_Reserve() {
 	reserve := func(ctx context.Context, db serviceTransactions, e *idem.Engine, r idem.Request) (idem.Reservation, idem.Result, error) {
 		var token idem.Reservation

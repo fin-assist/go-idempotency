@@ -1,6 +1,6 @@
 # Изменения
 
-Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии и выпуск — [docs/releasing.md](docs/releasing.md). Каждый PR, который меняет API или поведение библиотеки, добавляет строку в «Unreleased»; при выпуске раздел получает номер версии и дату.
+Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии и выпуск — [docs/releasing.md](docs/releasing.md). Каждый PR библиотеки, включая документацию, тесты и CI, добавляет строку в «Unreleased»; исключение — полностью ботские PR Renovate только с зависимостями, их сводку по `go.mod` добавляет PR выпуска. При выпуске раздел получает номер версии и дату.
 
 ## [Unreleased]
 
@@ -10,9 +10,12 @@
 
 ### Добавлено
 
+- FIN-297: `Engine.StreamInterceptor(scope)` — извлечение `idempotency-key` для потоковых RPC (client-streaming `UploadStatement`) по тем же правилам, что `UnaryInterceptor`; `FromContext(stream.Context())` возвращает `Request`. `HashUpload(contentHash, fileName)` — хеш запроса `UploadStatement` по формуле контракта (grpc-api.md, раздел 6): `SHA-256(SHA-256(содержимое) ‖ file_name)`, имя без нормализации. README («Внедрение», разделы 2, 4, 7) описывает порядок: ключ при открытии потока, хеш и `Do` после последнего `chunk`, `FILE_TOO_LARGE` без сохранения. Тесты используют сгенерированный `StatementsService` из `contracts/gen/go` v0.4.0, поэтому в `go.mod` появилась indirect-зависимость protovalidate той же версии, что у contracts; минимальные версии Go и contracts не повышены. Поведение существующих API не изменилось.
 - FIN-244: пример и consumer-тесты композиции с опубликованным go-postgres v0.1.2, Publisher outbox и tombstone Guard: общий COMMIT, replay, вложенный Run, полный откат при callback/deferred FK, чужой Manager, отмена/panic/Goexit. Guard пользовательского scope проверяется до чтения ключа, Purge атомарно удаляет outcomes по scope/owner. Production API и интерфейс Tx не изменены; новые зависимости используются только тестами и примерами.
 ### Изменено
 
+- FIN-308: перенесены из go-library-template запреты `forbidigo` и `depguard` на глобальное состояние (FIN-294) со `scripts/test_lint_policy.py` и защита CI (FIN-301): `persist-credentials: false` у checkout в `lint`, `api`, `migrations`, `github.base_ref` через `env`, `scripts/test_workflow_hardening.py`. Проба `test_lint_policy.py` берёт для каждого модуля из `go.mod` большую из версий `go.mod` и ручной (после `go mod tidy` — точное совпадение), иначе ручную версию как минимальную (по semver не ниже): иначе после PR Renovate проба проверяла бы запреты на старых grpc/prometheus или падала бы, когда новый otel поднимает otel/log (otel v1.47 требует otel/log v1.47). Нарушений в production-коде не найдено; runtime и экспортируемый API не менялись.
+- FIN-309: `docs/releasing.md` и вступление CHANGELOG по FIN-307: строка в `[Unreleased]` от каждого PR, включая документацию, тесты и CI; заголовок PR выпуска с ключом FIN; бот-PR Renovate без строки, их сводку по `go.mod` вносит PR выпуска. Runtime и API не менялись.
 - FIN-317: `internal/pgtest` больше не копирует go-migrate (по FIN-310): оставлен только выбор тестового PostgreSQL (`TEST_DATABASE_URL`/testcontainers, skip локально, ошибка в CI), создание БД, правила файлов и обход up → down → up делегированы `github.com/fin-assist/go-migrate` v0.1.1. go-migrate импортируется только тестами, но как require модуля входит в граф модулей и повышает минимальную версию go-migrate у сервисов, импортирующих библиотеку (сервисы уже на v0.1.1). Исключение `internal/pgtest` из покрытия не изменилось; runtime и экспортируемый API не менялись.
 - FIN-243: независимые unit/integration/API statements gates 80 % production-пакетов (по согласованию исключён только internal/pgtest), защита от пустых suite и содержательные тесты публичного API; прежний coverage-diff удалён. Runtime и экспортируемый API не изменены.
 
