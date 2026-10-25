@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Добавлено
+
+- FIN-244: пример и consumer-тесты композиции с опубликованным go-postgres v0.1.2, Publisher outbox и tombstone Guard: общий COMMIT, replay, вложенный Run, полный откат при callback/deferred FK, чужой Manager, отмена/panic/Goexit. Production API и интерфейс Tx не изменены; новые зависимости используются только тестами и примерами.
+
 ## [v0.4.1] — 2026-10-24
 
 ### Исправлено

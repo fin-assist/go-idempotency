@@ -38,6 +38,7 @@ for itself: what it does, its YouTrack issue, which services use it.
 | Migration source for the service runner (`Migrations`, `MigrationsName`, `MigrationsTable`) | `migrations.go`, `migrations/` |
 | PostgreSQL for tests, up → down → up check | `internal/pgtest/` (mirrors `migratetest` of the service template) |
 | Integration guide for services | `README.md`, «Внедрение» |
+| Public consumer composition with published Manager, outbox and tombstone (FIN-244) | `fin244_manager_test.go`, `fin244_manager_example_test.go`; no concrete manager in production interfaces |
 | Versions, compatibility, releases, Renovate | `docs/releasing.md`, `CHANGELOG.md`, `.github/workflows/release.yml`, `renovate.json` |
 | Coverage of changed lines, changelog checks | `scripts/` |
 | CI, lint | `.github/workflows/ci.yml`, `.golangci.yml`, `.squawk.toml`, `Makefile` |
