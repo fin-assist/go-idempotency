@@ -37,7 +37,7 @@ func unitEngine(t *testing.T) *Engine {
 	}
 	return e
 }
-func TestNewValidation(t *testing.T) {
+func TestUnitNewValidation(t *testing.T) {
 	good := func() Options {
 		return Options{Methods: map[string]Policy{testMethod: {}}, Clock: time.Now, Registerer: prometheus.NewRegistry()}
 	}
@@ -78,7 +78,7 @@ func TestNewValidation(t *testing.T) {
 		t.Fatal("short key accepted")
 	}
 }
-func TestHashAndMetadata(t *testing.T) {
+func TestUnitHashAndMetadata(t *testing.T) {
 	a, _ := structpb.NewStruct(map[string]any{"b": 2, "a": 1})
 	b, _ := structpb.NewStruct(map[string]any{"a": 1, "b": 2})
 	ha, err := HashProto(a)
@@ -145,7 +145,7 @@ type brokenReader struct{}
 
 func (brokenReader) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
 
-func TestCodecPoliciesAndEncryption(t *testing.T) {
+func TestUnitCodecPoliciesAndEncryption(t *testing.T) {
 	e := unitEngine(t)
 	r := Request{Scope: nilScope, Endpoint: testMethod, Key: testKey}
 	validation := finerr.ValidationError(&errdetails.BadRequest_FieldViolation{Field: "x", Reason: "REQUIRED"})
@@ -197,7 +197,7 @@ func TestCodecPoliciesAndEncryption(t *testing.T) {
 	}
 }
 
-func TestPreconditionsAndStorageErrors(t *testing.T) {
+func TestUnitPreconditionsAndStorageErrors(t *testing.T) {
 	e := unitEngine(t)
 	r := request()
 	ctx, cancel := e.WithCompletion(context.Background())
@@ -239,7 +239,7 @@ func TestPreconditionsAndStorageErrors(t *testing.T) {
 	}
 }
 
-func TestCodecInvalidOutcomesFailClosed(t *testing.T) {
+func TestUnitCodecInvalidOutcomesFailClosed(t *testing.T) {
 	e := unitEngine(t)
 	r := Request{Scope: nilScope, Endpoint: testMethod, Key: testKey}
 	p := Policy{TTL: time.Hour}
@@ -289,7 +289,7 @@ func (unavailableTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, e
 type unavailableTransactions struct{}
 
 func (unavailableTransactions) Tx(context.Context) (pgx.Tx, bool) { return unavailableTx{}, true }
-func TestDatabaseUnavailabilityNeverRunsAnEffect(t *testing.T) {
+func TestUnitDatabaseUnavailabilityNeverRunsAnEffect(t *testing.T) {
 	e := unitEngine(t)
 	e.txs = unavailableTransactions{}
 	r := request()
@@ -340,7 +340,7 @@ func TestDatabaseUnavailabilityNeverRunsAnEffect(t *testing.T) {
 	}
 }
 
-func TestZeroHashRejected(t *testing.T) {
+func TestUnitZeroHashRejected(t *testing.T) {
 	e := unitEngine(t)
 	ctx, cancel := e.WithCompletion(context.Background())
 	defer cancel()
@@ -355,7 +355,7 @@ func TestZeroHashRejected(t *testing.T) {
 	}
 }
 
-func TestWrappedContractErrorNeverLeaksWrapper(t *testing.T) {
+func TestUnitWrappedContractErrorNeverLeaksWrapper(t *testing.T) {
 	e := unitEngine(t)
 	r := request()
 	p := e.methods[r.Endpoint]
@@ -373,7 +373,7 @@ func TestWrappedContractErrorNeverLeaksWrapper(t *testing.T) {
 		t.Fatal(result, err)
 	}
 }
-func TestDuplicateRetryAtPreservesNonUTCMoment(t *testing.T) {
+func TestUnitDuplicateRetryAtPreservesNonUTCMoment(t *testing.T) {
 	e := unitEngine(t)
 	r := request()
 	r.Endpoint = "/finassist.user.v1.AuthService/StartPhoneVerification"
@@ -391,7 +391,7 @@ func TestDuplicateRetryAtPreservesNonUTCMoment(t *testing.T) {
 	}
 }
 
-func TestMethodLengthValidatedBeforeDatabase(t *testing.T) {
+func TestUnitMethodLengthValidatedBeforeDatabase(t *testing.T) {
 	for _, size := range []int{256, 257} {
 		method := "/" + strings.Repeat("s", size-3) + "/m"
 		_, err := New(noTx{}, Options{Methods: map[string]Policy{method: {}}, Clock: time.Now, Registerer: prometheus.NewRegistry()})
@@ -404,7 +404,7 @@ func TestMethodLengthValidatedBeforeDatabase(t *testing.T) {
 	}
 }
 
-func TestOperationIDsAreIndependentOfTransport(t *testing.T) {
+func TestUnitOperationIDsAreIndependentOfTransport(t *testing.T) {
 	for _, operation := range []string{testMethod, "POST /v1/actions", "actions.create"} {
 		if _, err := New(noTx{}, Options{Methods: map[string]Policy{operation: {}}, Clock: time.Now, Registerer: prometheus.NewRegistry()}); err != nil {
 			t.Fatal(operation, err)

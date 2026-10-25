@@ -57,7 +57,7 @@ func httpError(w http.ResponseWriter, err error) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": rest.Code, "details": details, "metadata": rest.Metadata}})
 }
 
-func TestUsageHTTPHandlerUsesTransportIndependentDo(t *testing.T) {
+func TestIntegrationUsageHTTPHandlerUsesTransportIndependentDo(t *testing.T) {
 	_, db, clock := setup(t)
 	const operation = "POST /v1/actions"
 	e, err := New(db, Options{Methods: map[string]Policy{operation: {}}, Clock: clock.Now, Registerer: prometheus.NewRegistry()})

@@ -15,7 +15,7 @@ import (
 const resultOwner = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 const foreignOwner = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
-func TestCodecOwnerValidationAndBinding(t *testing.T) {
+func TestUnitCodecOwnerValidationAndBinding(t *testing.T) {
 	e := unitEngine(t)
 	e.cipher, _ = NewCipher(make([]byte, 32))
 	r := request()
@@ -81,7 +81,7 @@ func ownedEffect(db *serviceDB, owner string) func(context.Context) (Response, e
 	}
 }
 
-func TestPostgresOwnerAtomicReplayPurgeAndCleanup(t *testing.T) {
+func TestIntegrationPostgresOwnerAtomicReplayPurgeAndCleanup(t *testing.T) {
 	e, db, clock := setup(t)
 	ctx := t.Context()
 	r := request()
@@ -142,7 +142,7 @@ func TestPostgresOwnerAtomicReplayPurgeAndCleanup(t *testing.T) {
 	assertCount(t, db, 3)
 }
 
-func TestPostgresOwnerInvalidAndStorageFailureRollBack(t *testing.T) {
+func TestIntegrationPostgresOwnerInvalidAndStorageFailureRollBack(t *testing.T) {
 	for _, mode := range []string{"invalid", "nil", "foreign-scope", "storage", "noncacheable", "cancelled"} {
 		t.Run(mode, func(t *testing.T) {
 			e, db, _ := setup(t)
@@ -205,7 +205,7 @@ func TestPostgresOwnerInvalidAndStorageFailureRollBack(t *testing.T) {
 	}
 }
 
-func TestPostgresReservedOwnerReplaysThroughEveryEntryPoint(t *testing.T) {
+func TestIntegrationPostgresReservedOwnerReplaysThroughEveryEntryPoint(t *testing.T) {
 	e, db, _ := setup(t)
 	r := request()
 	r.Endpoint = askMethod
@@ -248,7 +248,7 @@ func TestPostgresReservedOwnerReplaysThroughEveryEntryPoint(t *testing.T) {
 	assertCount(t, db, 1)
 }
 
-func TestPostgresOwnedCacheableErrorPreservesOwner(t *testing.T) {
+func TestIntegrationPostgresOwnedCacheableErrorPreservesOwner(t *testing.T) {
 	e, db, _ := setup(t)
 	first, err := runDo(e, db, t.Context(), request(), func(ctx context.Context) (Response, error) {
 		response, effectErr := ownedEffect(db, resultOwner)(ctx)
@@ -269,7 +269,7 @@ func TestPostgresOwnedCacheableErrorPreservesOwner(t *testing.T) {
 	assertCount(t, db, 1)
 }
 
-func TestPostgresUpgradeKeepsLegacyOwnerlessReplay(t *testing.T) {
+func TestIntegrationPostgresUpgradeKeepsLegacyOwnerlessReplay(t *testing.T) {
 	e, db, _ := setup(t)
 	// Recreate v0.1.0's live schema and save a result in its original JSON format.
 	for _, file := range []string{"003_result_owner_index.down.sql", "002_result_owner.down.sql"} {

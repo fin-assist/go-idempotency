@@ -97,7 +97,7 @@ func ownerUsageClient(t *testing.T) (*Engine, *serviceDB, *ownerUsageServer, use
 	return e, db, handler, userv1.NewAuthServiceClient(conn)
 }
 
-func TestUsageNoUserOwnerGuardsCachedSecrets(t *testing.T) {
+func TestIntegrationUsageNoUserOwnerGuardsCachedSecrets(t *testing.T) {
 	_, db, handler, client := ownerUsageClient(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -127,7 +127,7 @@ func TestUsageNoUserOwnerGuardsCachedSecrets(t *testing.T) {
 	}
 }
 
-func TestUsageOwnerlessAuthReplayDoesNotReleaseSecrets(t *testing.T) {
+func TestIntegrationUsageOwnerlessAuthReplayDoesNotReleaseSecrets(t *testing.T) {
 	e, db, _, client := ownerUsageClient(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
