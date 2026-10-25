@@ -19,6 +19,56 @@
 
 Все операции — **на primary (`-rw`), READ COMMITTED**. Передавайте `postgres.DB` через интерфейс `Tx(context.Context) (pgx.Tx, bool)`. Отсутствующая транзакция — `ErrNoTransaction`; библиотека не начинает, не коммитит и не откатывает её. На `-ro` библиотеку вызывать нельзя. Не делайте внешних вызовов внутри транзакции эффекта.
 
+### Общий Manager и композиция библиотек (FIN-244)
+
+`github.com/fin-assist/go-postgres v0.1.2` реализует небольшой интерфейс `Tx(ctx)` напрямую:
+
+```go
+manager := postgres.New(primaryPool) // import postgres "github.com/fin-assist/go-postgres"
+engine, err := idempotency.New(manager, options)
+if err != nil { return err }
+publisher, err := outbox.NewPublisher(manager, time.Now)
+if err != nil { return err }
+guard, err := tombstone.New(manager, primaryPool, time.Now)
+if err != nil { return err }
+```
+
+Сервис применяет миграции каждой библиотеки отдельным источником до этой сборки.
+`primaryPool` — primary, `options` — конфигурация идемпотентности из следующего раздела.
+У сервисных репозиториев, Engine, Publisher и Guard должен быть **один экземпляр Manager**.
+Даже второй Manager над тем же пулом — другой владелец: его `Tx(ctx)` отвергает чужой контекст,
+а `Run(ctx)` возвращает `ErrForeignTransaction`. Не подставляйте глобальный `postgres.Tx(ctx)`:
+он не проверяет владельца и не подходит для привязки репозитория к конкретному пулу.
+
+Общий путь: `engine.WithCompletion(requestCtx)` → внешний `manager.Run(completion, ...)`
+→ Guard проверенного пользовательского scope **до чтения ключа**
+→ `engine.Do(txCtx, request, effect)` → локальные записи/Publish через effectCtx
+→ возврат ошибки Do → настоящий COMMIT. Вложенный `manager.Run` присоединяется без
+savepoint и раннего commit; его ошибку нужно вернуть наружу. Внутри эффекта нет сетевых вызовов.
+Guard сериализует всю пользовательскую операцию с Purge, включая чтение/расшифровку
+сохранённого успеха или отказа. No-user auth отдельно проверяет tombstone владельца,
+обнаруженного после проверки секрета или полученного из replay, по правилам ниже.
+
+Отмена исходного запроса до эффекта прерывает ожидание ключа. После начала эффекта
+WithCompletion позволяет закончить запись и COMMIT; отмена самого completion или его дедлайн
+требует отката. Manager v0.1.2 откатывает транзакцию также при panic и runtime.Goexit.
+Успешный callback ещё не означает успешную операцию: deferred FK может отказать на COMMIT,
+тогда бизнес-запись, idempotency outcome и outbox event откатываются вместе.
+Не возвращайте сохранённый Response/Result.Err клиенту до успешного COMMIT.
+
+Manager сохраняет исходные ошибки БД для диагностики и обработки ограничений адаптером
+сервиса. Его `MapError` не очищает произвольные ошибки и не заменяет sanitization Engine:
+неизвестная ошибка эффекта по-прежнему превращается в ErrStorage с пустым Result;
+неизвестная ошибка COMMIT на транспортной границе становится bare INTERNAL.
+SQLSTATE + constraint сопоставляет владелец ограничения во внешнем operation-адаптере,
+а не эта библиотека. Сырые SQL/Detail/payload и текст ошибки Manager клиенту не передаются.
+
+Полная consumer-композиция проверяется в [fin244_manager_test.go](fin244_manager_test.go):
+отдельное наблюдающее соединение до COMMIT, replay без повторного эффекта, откат и повтор
+с тем же ключом после исправления deferred FK, callback-отказ, чужой Manager и аномальное
+завершение эффекта. Для подключения достаточно импортов в тестах/примерах: production API
+idempotency не зависит от конкретного Manager.
+
 ### 2. Сборка и интерцептор
 
 ```go
