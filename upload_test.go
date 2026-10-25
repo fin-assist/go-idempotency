@@ -52,6 +52,16 @@ type contextStream struct {
 
 func (s contextStream) Context() context.Context { return s.ctx }
 
+type derivedKey struct{}
+
+// derivingStream returns a new derived context on every Context() call, like a
+// wrapper installed by an earlier interceptor in the chain.
+type derivingStream struct{ grpc.ServerStream }
+
+func (*derivingStream) Context() context.Context {
+	return context.WithValue(context.Background(), derivedKey{}, 1)
+}
+
 func TestUnitStreamInterceptorMatchesUnaryRules(t *testing.T) {
 	e := unitEngine(t)
 	info := &grpc.StreamServerInfo{FullMethod: testMethod, IsClientStream: true}
@@ -110,18 +120,18 @@ func TestUnitStreamInterceptorMatchesUnaryRules(t *testing.T) {
 	if calls != 1 {
 		t.Fatal("handler ran after a refusal:", calls)
 	}
-	// Other methods pass through with the original stream and no Request.
+	// Other methods pass through with the original stream and no Request, even when
+	// an earlier interceptor's Context() derives a new context on every call.
 	var passed grpc.ServerStream
-	plain := contextStream{ctx: context.Background()}
+	plain := &derivingStream{}
 	err := interceptor(nil, plain, &grpc.StreamServerInfo{FullMethod: "/other/Watch"}, func(_ any, ss grpc.ServerStream) error {
 		passed = ss
-		_, ok := FromContext(ss.Context())
-		if ok {
+		if _, ok := FromContext(ss.Context()); ok {
 			t.Fatal("request outside the allowlist")
 		}
 		return nil
 	})
-	if err != nil || passed != plain {
-		t.Fatal(err, passed)
+	if err != nil || passed != grpc.ServerStream(plain) {
+		t.Fatalf("got %T, err %v", passed, err)
 	}
 }

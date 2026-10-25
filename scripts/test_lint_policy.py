@@ -38,10 +38,10 @@ def go_mod_version(module, go_mod):
 
 
 # The probe is hermetic: every module it compiles is pinned, so an upstream release cannot break CI.
-# A module go.mod lists is probed at the go.mod version (Renovate updates it there) and must survive
-# tidy exactly. The hand versions below are used only for modules absent from go.mod; they are minimums:
-# tidy may raise one when a go.mod module requires a newer release (otel v1.47 requires otel/log v1.47),
-# never lower it. Renovate does not read them: they are raised by hand in a reviewed PR, when the
+# A module go.mod lists is probed at the higher of its go.mod version (Renovate updates it there) and
+# its hand version below (the oldest API the probe needs), and must survive tidy exactly. For a module
+# absent from go.mod the hand version is a minimum: tidy may raise it when a go.mod module requires a
+# newer release (otel v1.47 requires otel/log v1.47), never lower it. Renovate does not read the hand versions: they are raised by hand in a reviewed PR, when the
 # libraries or services move to a new release, or when the probe needs an API that only a newer release has.
 GO_VERSION = re.search(r"^go (\S+)$", GO_MOD, re.M)[1]
 HAND_PINNED = {
@@ -322,11 +322,12 @@ def lower_minor(version):
 class PinTests(unittest.TestCase):
     def test_go_mod_module_follows_go_mod_exactly(self):
         # Renovate raised grpc in go.mod: the probe must lint the new release, not the hand pin.
-        go_mod = "module example.com/m\n\ngo 1.26\n\nrequire google.golang.org/grpc v1.85.0\n"
+        raised = bump_minor(HAND_PINNED["google.golang.org/grpc"])  # v1.84.0 -> v1.85.0
+        go_mod = f"module example.com/m\n\ngo 1.26\n\nrequire google.golang.org/grpc {raised}\n"
         pin = probe_pins(go_mod)["google.golang.org/grpc"]
-        self.assertEqual(pin, ("v1.85.0", True))
-        self.assertTrue(pin_kept(pin, "v1.85.0"))
-        self.assertFalse(pin_kept(pin, bump_minor("v1.85.0")))
+        self.assertEqual(pin, (raised, True))
+        self.assertTrue(pin_kept(pin, raised))
+        self.assertFalse(pin_kept(pin, bump_minor(raised)))
         self.assertFalse(pin_kept(pin, None))
 
     def test_go_mod_below_hand_version_probes_the_hand_version_exactly(self):
