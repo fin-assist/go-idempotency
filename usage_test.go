@@ -172,15 +172,8 @@ func TestIntegrationUsageBusyPhoneRateLimitedRebuildsRetryInfo(t *testing.T) {
 		}
 		if i == 0 {
 			firstDelay = rest.RetryAfter
-			// finerr rounds its wall-clock delay up to seconds; cross one
-			// second intentionally to verify aging (not goroutine synchronization).
-			timer := time.NewTimer(1100 * time.Millisecond)
-			select {
-			case <-timer.C:
-			case <-ctx.Done():
-				timer.Stop()
-				t.Fatal(ctx.Err())
-			}
+			// Replay ages against the service's injected clock, independently of wall time.
+			clock.Add(20 * time.Second)
 		} else if rest.RetryAfter >= firstDelay {
 			t.Fatal("RetryInfo was not recomputed", rest.RetryAfter, firstDelay)
 		}
