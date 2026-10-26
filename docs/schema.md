@@ -88,3 +88,13 @@ request_hash, reservation_id, `done=false` и `expires_at > Clock()` после 
 golang-migrate оставляет dirty; оператор проверяет pg_index.indisvalid, удаляет
 незавершённый индекс и только затем восстанавливает версию/повторяет миграцию.
 IF NOT EXISTS намеренно отсутствует: он мог бы молча принять невалидный индекс.
+
+## Структурированные ошибки replay (FIN-225)
+
+SQL/миграции/TTL не меняются. `payload` сохраняет проверенный Status с типизированными и неизвестными Any; чтение не обновляет строку. Для busy-429 `RetryAt` связан с прежними методом/причиной/metadata/Response.DuplicateRetryAt. Private JSON `RetryInfoUntil` новых optional wait хранит абсолютный конец ожидания, не срок ключа, и шифруется вместе с payload.
+
+| Инвариант | Код | Проверки |
+|---|---|---|
+| Typed/unknown детали сохраняются, относительная задержка не зависит от wall clock | checkedStatus, storedRetryInfo, replayStatus | TestUnitCachedRetryDetailsAndAbsoluteClock, TestIntegrationCachedStructuredStatusPublicTransport, TestAPICachedStructuredStatusPublicTransport |
+| Противоречивые binding/details и непредставимые duration закрываются ErrStorage | replayStatus | TestUnitCachedAdviceExpiryAndLegacyBinding, TestUnitCachedAbsoluteWaitMustFitDuration, transport/API scenarios |
+| Старое optional ожидание без anchor не перезапускается, прошедшее снимается, true ограничен expires_at, absence/false не повышаются | encode, replayStatus | TestUnitCachedRetryDetailsAndAbsoluteClock, TestUnitCachedAdviceExpiryAndLegacyBinding, transport/API scenarios |

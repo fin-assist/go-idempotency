@@ -9,6 +9,9 @@ import (
 )
 
 type record struct {
+	// observedAt is the in-memory expiry decision taken after acquiring the row lock.
+	// It is never persisted and is not evidence of the original key's age.
+	observedAt  time.Time
 	resource    Resource
 	owner       string
 	hash        [32]byte
@@ -59,7 +62,8 @@ func (e *Engine) claim(ctx context.Context, tx pgx.Tx, r Request, ttl time.Durat
 			if err != nil {
 				return err
 			}
-			if row.expires.After(e.now()) {
+			row.observedAt = e.now()
+			if row.expires.After(row.observedAt) {
 				return nil
 			}
 			// The row lock fences both cleanup and an expired reservation owner.
