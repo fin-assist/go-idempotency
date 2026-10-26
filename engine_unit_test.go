@@ -52,6 +52,76 @@ func storedRow(r record) pgx.Row {
 func timeoutRow() pgx.Row {
 	return rowScan(func(dest ...any) error { *dest[0].(*string) = "7s"; return nil })
 }
+
+func TestUnitReplayUsesLockedExpiryDecisionTime(t *testing.T) {
+	for _, operation := range []string{"Do", "Reserve", "DoReserved"} {
+		t.Run(operation, func(t *testing.T) {
+			e := unitEngine(t)
+			origin := time.Date(2040, 1, 2, 3, 4, 5, 0, time.UTC)
+			until := origin.Add(time.Minute)
+			e.now = func() time.Time { return origin }
+			r := request()
+			r.Endpoint = "/finassist.user.v1.AuthService/StartPhoneVerification"
+			policy := Policy{TTL: 24 * time.Hour, Encrypt: true}
+			e.methods[r.Endpoint] = policy
+			e.cipher, _ = NewCipher(make([]byte, 32))
+			r, _, _ = e.validate(r)
+			no := false
+			original := codecAdviceError(t, true, until, time.Minute, &no)
+			payload, expiry, err := e.encode(r, policy, Result{Response: Response{DuplicateRetryAt: until}, Err: original})
+			if err != nil {
+				t.Fatal(err)
+			}
+			locked, reads := false, 0
+			e.now = func() time.Time {
+				if !locked {
+					return origin
+				}
+				reads++
+				if reads == 1 {
+					return until.Add(-time.Nanosecond)
+				}
+				return until // Time crosses expiry between the decision and decoding.
+			}
+			tx := &adapterTx{query: func(sql string, _ []any) pgx.Row {
+				if strings.Contains(sql, "current_setting") {
+					return timeoutRow()
+				}
+				if strings.HasPrefix(sql, "INSERT") {
+					return rowScan(func(...any) error { return pgx.ErrNoRows })
+				}
+				locked = true
+				return storedRow(record{hash: r.Hash, done: true, payload: payload, encrypted: true, expires: expiry})
+			}, exec: func(sql string, _ []any) (pgconn.CommandTag, error) {
+				if !strings.Contains(sql, "set_config") {
+					t.Fatal("replay mutated a completed key")
+				}
+				return pgconn.NewCommandTag("SELECT 1"), nil
+			}}
+			e.txs = adapterTransactions{tx}
+			ctx, cancel := e.WithCompletion(context.Background())
+			defer cancel()
+			effect := func(context.Context) (Response, error) {
+				t.Fatal("replay repeated effect")
+				return Response{}, nil
+			}
+			var result Result
+			switch operation {
+			case "Do":
+				result, err = e.Do(ctx, r, effect)
+			case "Reserve":
+				_, result, err = e.Reserve(ctx, r)
+			case "DoReserved":
+				result, err = e.DoReserved(ctx, Reservation{request: r, id: "ours"}, effect)
+			}
+			if err != nil || !result.Replayed || reads != 1 {
+				t.Fatal("locked replay did not retain one expiry decision", err, result.Replayed, reads)
+			}
+			assertStoredDetails(t, original, result.Err, time.Nanosecond, &no)
+		})
+	}
+}
+
 func TestUnitPerformPreservesOwnerAndFencesLostUpdates(t *testing.T) {
 	for _, scenario := range []string{"success", "zero updated", "storage failure", "invalid resource", "invalid outcome", "uncacheable domain"} {
 		t.Run(scenario, func(t *testing.T) {

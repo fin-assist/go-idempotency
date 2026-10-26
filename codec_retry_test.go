@@ -252,6 +252,25 @@ func TestUnitCachedAdviceExpiryAndLegacyBinding(t *testing.T) {
 	if _, err = e.decode(r, row); !errors.Is(err, ErrStorage) {
 		t.Fatal("expired key accepted", err)
 	}
+	// A private optional anchor is meaningful only while its original detail exists.
+	brokenOptional := editStoredOutcome(t, e, r, record{payload: payload, expires: expires}, func(s *stored) {
+		wire := new(statuspb.Status)
+		if err := proto.Unmarshal(s.Status, wire); err != nil {
+			t.Fatal(err)
+		}
+		kept := wire.Details[:0]
+		for _, detail := range wire.Details {
+			if !detail.MessageIs(&errdetails.RetryInfo{}) {
+				kept = append(kept, detail)
+			}
+		}
+		wire.Details = kept
+		s.Status, _ = proto.Marshal(wire)
+	})
+	now = origin
+	if _, err = e.decode(r, brokenOptional); !errors.Is(err, ErrStorage) {
+		t.Fatal("optional anchor without RetryInfo accepted", err)
+	}
 	// Recheck every stored busy binding rather than replacing any error carrying an unrelated RetryAt.
 	r.Endpoint = "/finassist.user.v1.AuthService/StartPhoneVerification"
 	e.methods[r.Endpoint] = Policy{TTL: time.Hour}
@@ -262,7 +281,7 @@ func TestUnitCachedAdviceExpiryAndLegacyBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	row = record{payload: payload, expires: expires}
-	for _, edit := range []func(*stored){func(s *stored) { s.RetryAt = time.Time{} }, func(s *stored) { s.Response.DuplicateRetryAt = until.Add(time.Second) }, func(s *stored) { s.RetryInfoUntil = until }, func(s *stored) { s.Status, _ = proto.Marshal(status.Convert(finerr.WrongFormat()).Proto()) }, func(s *stored) { s.Status = nil }} {
+	for _, edit := range []func(*stored){func(s *stored) { s.RetryAt = time.Time{} }, func(s *stored) { s.RetryAt, s.Response.DuplicateRetryAt = time.Time{}, time.Time{} }, func(s *stored) { s.Response.DuplicateRetryAt = until.Add(time.Second) }, func(s *stored) { s.RetryInfoUntil = until }, func(s *stored) { s.Status, _ = proto.Marshal(status.Convert(finerr.WrongFormat()).Proto()) }, func(s *stored) { s.Status = nil }} {
 		broken := editStoredOutcome(t, e, r, row, edit)
 		if _, err = e.decode(r, broken); !errors.Is(err, ErrStorage) {
 			t.Fatal("malformed anchor binding accepted", err)

@@ -83,6 +83,10 @@ func (e *Engine) encode(r Request, p Policy, result Result) ([]byte, time.Time, 
 }
 
 func (e *Engine) decode(r Request, row record) (Result, error) {
+	now := row.observedAt
+	if now.IsZero() {
+		now = e.now()
+	}
 	b := row.payload
 	p := e.methods[r.Endpoint]
 	if row.encrypted != p.Encrypt || len(b) > maxPayload {
@@ -110,7 +114,7 @@ func (e *Engine) decode(r Request, row record) (Result, error) {
 			return Result{}, ErrStorage
 		}
 		var err error
-		result.Err, err = e.replayStatus(r, row, s, st)
+		result.Err, err = e.replayStatus(r, row, s, st, now)
 		if err != nil {
 			return Result{}, err
 		}
@@ -211,7 +215,7 @@ func storedRetryInfo(wire *statuspb.Status) (int, *errdetails.RetryInfo, error) 
 	return -1, nil, nil
 }
 
-func (e *Engine) replayStatus(r Request, row record, s stored, original *statuspb.Status) (error, error) {
+func (e *Engine) replayStatus(r Request, row record, s stored, original *statuspb.Status, now time.Time) (error, error) {
 	wire, parsed, err := checkedStatus(restoreStatus(original))
 	if err != nil {
 		return nil, err
@@ -220,7 +224,6 @@ func (e *Engine) replayStatus(r Request, row record, s stored, original *statusp
 	if err != nil {
 		return nil, err
 	}
-	now := e.now()
 	if !row.expires.IsZero() && !row.expires.After(now) {
 		return nil, ErrStorage
 	}

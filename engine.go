@@ -196,7 +196,8 @@ func (e *Engine) DoReserved(ctx context.Context, token Reservation, effect func(
 		return Result{}, err
 	}
 	if row.done {
-		if !row.expires.After(e.now()) {
+		row.observedAt = e.now()
+		if !row.expires.After(row.observedAt) {
 			return Result{}, e.progress(r, time.Second)
 		}
 		return e.existing(r, row)
@@ -320,7 +321,7 @@ func (e *Engine) existing(r Request, row record) (Result, error) {
 		return Result{}, finerr.IdempotencyConflict()
 	}
 	if !row.done {
-		return Result{}, e.progress(r, row.expires.Sub(e.now()))
+		return Result{}, e.progress(r, row.expires.Sub(row.observedAt))
 	}
 	result, err := e.decode(r, row)
 	if err != nil {
