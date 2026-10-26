@@ -340,3 +340,7 @@ make api   # exported API versus latest tag
 ## Автоматизация обновлений зависимостей
 
 [Политика Renovate](docs/renovate-policy.md) (FIN-211): одна актуальная release/main, автомерж полностью ботских PR после обязательного CI, один повтор красного CI и закрытие с явным повтором через Dependency Dashboard. AndroidX/Compose остаются на ручной проверке. Исходные группировки, ограничения версий и расписания — `renovate-base.json`; generated target и quarantine — ветка `renovate-policy`. Активация требует отдельного токена и строгой защиты веток; по умолчанию выключена.
+
+Проверка `api` устойчива к публикации тега во время CI: release-коммит сравнивается
+с предыдущим выпуском, удалённый тег проверяется по commit до и после `gorelease`.
+Подробности и границы исключения — [docs/releasing.md](docs/releasing.md#проверка-версии-в-ci-fin-264).
