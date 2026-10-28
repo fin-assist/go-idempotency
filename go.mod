@@ -3,7 +3,7 @@ module github.com/fin-assist/go-idempotency
 go 1.26.0
 
 require (
-	github.com/fin-assist/contracts/gen/go v0.6.0
+	github.com/fin-assist/contracts/gen/go v0.7.0
 	github.com/fin-assist/go-migrate v0.2.1
 	github.com/fin-assist/go-outbox v0.2.1
 	github.com/fin-assist/go-postgres v0.3.1
